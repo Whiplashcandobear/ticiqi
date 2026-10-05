@@ -79,6 +79,7 @@ class OverlayRecorder(
             val sizes = characteristics
                 .get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
                 ?.getOutputSizes(MediaRecorder::class.java)
+                ?.toList()
                 .orEmpty()
             val size = chooseVideoSize(sizes)
             rec.setVideoSize(size.width, size.height)
@@ -212,7 +213,7 @@ class OverlayRecorder(
     }
 
     /** 选一个 ≤1080p、最接近 16:9 的录像尺寸，避免不受支持的分辨率。 */
-    private fun chooseVideoSize(sizes: Array<Size>): Size {
+    private fun chooseVideoSize(sizes: List<Size>): Size {
         if (sizes.isEmpty()) return Size(1280, 720)
         val candidates = sizes.filter { it.width <= 1920 && it.height <= 1080 }
         val pool = candidates.ifEmpty { sizes.toList() }

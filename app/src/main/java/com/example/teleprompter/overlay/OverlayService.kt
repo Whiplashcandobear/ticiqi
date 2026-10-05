@@ -12,6 +12,7 @@ import android.content.pm.ServiceInfo
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.SurfaceTexture
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
@@ -24,7 +25,6 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.Surface
-import android.view.SurfaceTexture
 import android.view.TextureView
 import android.view.View
 import android.view.WindowManager

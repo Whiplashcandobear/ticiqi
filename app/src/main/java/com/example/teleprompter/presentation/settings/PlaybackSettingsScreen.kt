@@ -41,8 +41,8 @@ import com.example.teleprompter.domain.model.DisplaySettings
 import com.example.teleprompter.domain.model.FontScale
 import com.example.teleprompter.domain.model.PromptMode
 import com.example.teleprompter.domain.model.ThemeMode
-import com.example.teleprompter.domain.parser.countWords
-import com.example.teleprompter.domain.playback.calibratedWpm
+import com.example.teleprompter.domain.parser.countReadingUnits
+import com.example.teleprompter.domain.playback.calibratedRate
 import com.example.teleprompter.domain.playback.calibrationSample
 import com.example.teleprompter.util.ceilDurationSeconds
 import com.example.teleprompter.util.formatDurationSeconds
@@ -66,7 +66,7 @@ fun PlaybackSettingsScreen(store: LocalStore, scriptId: Long, onBack: () -> Unit
     var calibrationElapsedMillis by rememberSaveable { mutableLongStateOf(0L) }
     var calibrationMessage by rememberSaveable { mutableStateOf("") }
     val calibrationText = remember(script.rawText) { calibrationSample(script.rawText) }
-    val calibrationWordCount = remember(calibrationText) { countWords(calibrationText) }
+    val calibrationUnits = remember(calibrationText) { countReadingUnits(calibrationText) }
 
     LaunchedEffect(calibrationRunning) {
         while (calibrationRunning) {
@@ -93,38 +93,38 @@ fun PlaybackSettingsScreen(store: LocalStore, scriptId: Long, onBack: () -> Unit
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Text(script.title, fontWeight = FontWeight.Bold, fontSize = 20.sp)
-            Text("${script.wordCount} words · 预计 ${formatDurationSeconds(ceilDurationSeconds(script.wordCount, settings.wpm))}", color = MaterialTheme.colorScheme.secondary)
+            Text("${countReadingUnits(script.rawText)} 字 · 预计 ${formatDurationSeconds(ceilDurationSeconds(countReadingUnits(script.rawText), settings.speed))}", color = MaterialTheme.colorScheme.secondary)
 
             SettingTitle("播放方式")
             ChoiceRow(PromptMode.entries.toList(), settings.promptMode, { it.label() }) { update(settings.copy(promptMode = it)) }
             Text(
                 if (settings.promptMode == PromptMode.VOICE_FOLLOW) {
-                    "实时语音跟随：按句匹配你的英语语音；识别中断约 2 秒会自动回到固定 WPM。"
+                    "实时语音跟随：按字匹配你的中文语音；识别中断约 2 秒会自动回到固定速度。"
                 } else {
-                    "固定 WPM：按照设定速度播放，适合环境嘈杂或不使用麦克风时。"
+                    "固定速度：按照设定字/分播放，适合环境嘈杂或不使用麦克风时。"
                 },
                 color = MaterialTheme.colorScheme.secondary,
                 fontSize = 13.sp
             )
 
             SettingTitle("滚动速度")
-            ChoiceRow(listOf(80, 100, 120, 140, 160, settings.wpm).distinct().sorted(), settings.wpm, { it.toString() }) { update(settings.copy(wpm = it)) }
+            ChoiceRow(listOf(120, 160, 200, 240, 280, 320, settings.speed).distinct().sorted(), settings.speed, { it.toString() }) { update(settings.copy(speed = it)) }
 
             SettingTitle("语速校准")
             Text(
-                "请按真实演讲速度完整读完下面的片段，得到适合你的平均 WPM。",
+                "请按真实演讲速度完整读完下面的片段，得到适合你的平均字/分。",
                 color = MaterialTheme.colorScheme.secondary,
                 fontSize = 13.sp
             )
             if (calibrationText.isBlank()) {
-                Text("当前台本没有可用于校准的英文内容。", color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+                Text("当前台本没有可用于校准的内容。", color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
             } else {
                 Column(
                     modifier = Modifier.fillMaxWidth().heightIn(max = 170.dp).verticalScroll(rememberScrollState())
                 ) {
                     Text(calibrationText, lineHeight = 23.sp, color = MaterialTheme.colorScheme.onSurface)
                 }
-                Text("校准片段：$calibrationWordCount 词", color = MaterialTheme.colorScheme.secondary, fontSize = 12.sp)
+                Text("校准片段：$calibrationUnits 字", color = MaterialTheme.colorScheme.secondary, fontSize = 12.sp)
                 Text(
                     "已用时：${"%.1f".format(calibrationElapsedMillis / 1000.0)} 秒",
                     color = MaterialTheme.colorScheme.secondary,
@@ -143,14 +143,14 @@ fun PlaybackSettingsScreen(store: LocalStore, scriptId: Long, onBack: () -> Unit
                             if (elapsed < 1_000L) {
                                 calibrationMessage = "计时太短，请重新完整读完片段。"
                             } else {
-                                val result = calibratedWpm(calibrationWordCount, elapsed)
-                                update(settings.copy(wpm = result))
+                                val result = calibratedRate(calibrationUnits, elapsed)
+                                update(settings.copy(speed = result))
                                 calibrationElapsedMillis = elapsed
-                                calibrationMessage = "已校准为 $result WPM"
+                                calibrationMessage = "已校准为 $result 字/分"
                             }
                         }
                     },
-                    enabled = calibrationWordCount > 0,
+                    enabled = calibrationUnits > 0,
                     modifier = Modifier.fillMaxWidth().height(48.dp)
                 ) {
                     Text(if (calibrationRunning) "完成校准" else "开始校准")
@@ -175,7 +175,7 @@ fun PlaybackSettingsScreen(store: LocalStore, scriptId: Long, onBack: () -> Unit
             SettingTitle("初始方向")
             ChoiceRow(listOf(false, true), settings.landscape, { if (it) "横屏" else "竖屏" }) { update(settings.copy(landscape = it)) }
 
-            Text("播放中可用 −5 / +5 WPM 即时微调，当前句会继续播放且不会跳回；你仍可上下滚动浏览全文。", color = MaterialTheme.colorScheme.secondary, fontSize = 13.sp)
+            Text("播放中可用 −10 / +10 字/分 即时微调，当前句会继续播放且不会跳回；你仍可上下滚动浏览全文。", color = MaterialTheme.colorScheme.secondary, fontSize = 13.sp)
             Spacer(Modifier.height(4.dp))
             Button(onClick = { onStart(script.id) }, modifier = Modifier.fillMaxWidth().height(56.dp)) {
                 Text("开始提词", fontSize = 17.sp, fontWeight = FontWeight.Bold)
@@ -234,6 +234,6 @@ private fun AccentColor.label() = when (this) {
 private fun ThemeMode.label() = if (this == ThemeMode.DARK) "深色" else "浅色"
 
 private fun PromptMode.label() = when (this) {
-    PromptMode.FIXED_WPM -> "固定 WPM"
+    PromptMode.FIXED_WPM -> "固定速度"
     PromptMode.VOICE_FOLLOW -> "实时语音跟随"
 }

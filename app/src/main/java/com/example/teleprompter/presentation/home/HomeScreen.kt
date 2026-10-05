@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.teleprompter.data.LocalStore
 import com.example.teleprompter.domain.model.ScriptDocument
+import com.example.teleprompter.domain.parser.countReadingUnits
 import com.example.teleprompter.util.ceilDurationSeconds
 import com.example.teleprompter.util.formatDurationSeconds
 
@@ -106,10 +107,11 @@ fun HomeScreen(
 
 @Composable
 private fun ScriptCard(script: ScriptDocument, onEdit: () -> Unit, onPlay: () -> Unit, onDelete: () -> Unit) {
+    val unitCount = countReadingUnits(script.rawText)
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(script.title, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-            Text("${script.wordCount} words · ${formatDurationSeconds(ceilDurationSeconds(script.wordCount, 120))}", color = MaterialTheme.colorScheme.secondary)
+            Text("$unitCount 字 · ${formatDurationSeconds(ceilDurationSeconds(unitCount, 200))}", color = MaterialTheme.colorScheme.secondary)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onPlay, modifier = Modifier.weight(1f)) { Text("提词") }
                 OutlinedButton(onClick = onEdit, modifier = Modifier.weight(1f)) { Text("编辑") }

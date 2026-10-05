@@ -44,7 +44,7 @@ import com.example.teleprompter.domain.overlay.stepOverlayFontScale
 import com.example.teleprompter.domain.playback.playbackUnits
 import com.example.teleprompter.domain.playback.positionForFraction
 import com.example.teleprompter.domain.playback.segmentDurationSeconds
-import com.example.teleprompter.domain.playback.stepWpm
+import com.example.teleprompter.domain.playback.stepRate
 import com.example.teleprompter.domain.voice.VoiceFollowEngine
 import com.example.teleprompter.domain.voice.VoiceFollowState
 import com.example.teleprompter.voice.AndroidSpeechRecognizer
@@ -208,14 +208,14 @@ class OverlayService : Service() {
             gravity = Gravity.CENTER_VERTICAL
         }
         controls.addView(actionButton("字−") { changeFont(false) })
-        controls.addView(actionButton("慢5") { changeSpeed(-5) })
+        controls.addView(actionButton("慢10") { changeSpeed(-10) })
         playButton = actionButton("暂停") {
             isPlaying = !isPlaying
             if (isPlaying) startVoiceFollowIfNeeded() else speechRecognizer?.stop()
             updatePlayButton()
         }
         controls.addView(playButton)
-        controls.addView(actionButton("快5") { changeSpeed(+5) })
+        controls.addView(actionButton("快10") { changeSpeed(+10) })
         controls.addView(actionButton("字＋") { changeFont(true) })
         controls.addView(actionButton("色") { toggleTheme() })
         root.addView(controls, LinearLayout.LayoutParams(-1, dp(42)))
@@ -337,7 +337,7 @@ class OverlayService : Service() {
                 val fixedPlaybackEnabled = settings.promptMode == PromptMode.FIXED_WPM ||
                     voiceUnavailable || voiceState?.isFallbackToWpm == true
                 if (!isPlaying || !fixedPlaybackEnabled || units.isEmpty() || currentIndex !in units.indices) continue
-                val duration = segmentDurationSeconds(units[currentIndex], settings.wpm)
+                val duration = segmentDurationSeconds(units[currentIndex], settings.speed)
                 progress += 0.1f / duration.toFloat()
                 if (progress >= 1f) {
                     progress = 0f
@@ -364,9 +364,9 @@ class OverlayService : Service() {
     }
 
     private fun changeSpeed(delta: Int) {
-        val next = stepWpm(settings.wpm, delta)
-        if (next != settings.wpm) {
-            settings = settings.copy(wpm = next)
+        val next = stepRate(settings.speed, delta)
+        if (next != settings.speed) {
+            settings = settings.copy(speed = next)
             store.saveSettings(settings)
             updateStatus()
         }
@@ -387,8 +387,8 @@ class OverlayService : Service() {
 
     private fun updateStatus() {
         val mode = when {
-            settings.promptMode == PromptMode.FIXED_WPM -> "固定 ${settings.wpm} WPM"
-            voiceUnavailable || voiceState?.isFallbackToWpm == true -> "固定 WPM 兜底"
+            settings.promptMode == PromptMode.FIXED_WPM -> "固定 ${settings.speed} 字/分"
+            voiceUnavailable || voiceState?.isFallbackToWpm == true -> "固定 字/分 兜底"
             else -> "语音跟随"
         }
         statusText?.text = if (units.isEmpty()) "暂无台本" else "第 ${currentIndex + 1} / ${units.size} 句 · $mode"

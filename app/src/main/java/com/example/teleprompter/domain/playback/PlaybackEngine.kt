@@ -2,6 +2,7 @@ package com.example.teleprompter.domain.playback
 
 import com.example.teleprompter.domain.model.SpeechUnit
 import com.example.teleprompter.domain.parser.SpeechTextParser
+import com.example.teleprompter.domain.parser.countReadingUnits
 import kotlin.math.max
 import kotlin.math.min
 
@@ -26,14 +27,14 @@ fun autoScrollStartIndex(
     units: List<SpeechUnit>,
     currentIndex: Int,
     contextItems: Int,
-    longSentenceWordThreshold: Int = 12
+    longSentenceUnitThreshold: Int = 18
 ): Int {
     require(contextItems >= 0) { "contextItems must not be negative" }
-    require(longSentenceWordThreshold > 0) { "longSentenceWordThreshold must be positive" }
+    require(longSentenceUnitThreshold > 0) { "longSentenceUnitThreshold must be positive" }
     if (units.isEmpty()) return 0
 
     val safeIndex = currentIndex.coerceIn(0, units.lastIndex)
-    return if (units[safeIndex].wordCount >= longSentenceWordThreshold) {
+    return if (countReadingUnits(units[safeIndex].rawText) >= longSentenceUnitThreshold) {
         safeIndex
     } else {
         (safeIndex - contextItems).coerceAtLeast(0)
@@ -72,5 +73,5 @@ fun positionForFraction(fraction: Float, unitCount: Int): PlaybackPosition {
     return PlaybackPosition(index = index, progress = innerProgress)
 }
 
-fun segmentDurationSeconds(unit: SpeechUnit, wpm: Int): Double =
-    max(unit.wordCount.toDouble() / wpm.coerceAtLeast(1) * 60.0, 1.5)
+fun segmentDurationSeconds(unit: SpeechUnit, rate: Int): Double =
+    max(countReadingUnits(unit.rawText).toDouble() / rate.coerceAtLeast(1) * 60.0, 1.0)

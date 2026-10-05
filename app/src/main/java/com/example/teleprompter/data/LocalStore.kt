@@ -53,7 +53,7 @@ class LocalStore(context: Context) {
     fun loadSettings(): DisplaySettings = runCatching {
         val item = JSONObject(preferences.getString(KEY_SETTINGS, "{}") ?: "{}")
         DisplaySettings(
-            wpm = item.optInt("wpm", 120),
+            speed = item.optInt("speed", item.optInt("wpm", 200)),
             accentColor = runCatching { AccentColor.valueOf(item.optString("accentColor", "BLUE")) }.getOrDefault(AccentColor.BLUE),
             themeMode = runCatching { ThemeMode.valueOf(item.optString("themeMode", "DARK")) }.getOrDefault(ThemeMode.DARK),
             fontScale = runCatching { FontScale.valueOf(item.optString("fontScale", "LARGE")) }.getOrDefault(FontScale.LARGE),
@@ -66,7 +66,7 @@ class LocalStore(context: Context) {
 
     fun saveSettings(settings: DisplaySettings) {
         val item = JSONObject()
-            .put("wpm", settings.wpm)
+            .put("speed", settings.speed)
             .put("accentColor", settings.accentColor.name)
             .put("themeMode", settings.themeMode.name)
             .put("fontScale", settings.fontScale.name)

@@ -33,7 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.teleprompter.data.LocalStore
 import com.example.teleprompter.domain.model.ScriptDocument
-import com.example.teleprompter.domain.parser.countWords
+import com.example.teleprompter.domain.parser.countReadingUnits
 import com.example.teleprompter.util.ceilDurationSeconds
 import com.example.teleprompter.util.formatDurationSeconds
 
@@ -44,9 +44,9 @@ fun ScriptEditorScreen(store: LocalStore, scriptId: Long, onBack: () -> Unit, on
     var title by rememberSaveable(scriptId) { mutableStateOf(existing?.title ?: "未命名演讲") }
     var text by rememberSaveable(scriptId) { mutableStateOf(existing?.rawText ?: "") }
     val clipboard = LocalClipboardManager.current
-    val words = remember(text) { countWords(text) }
-    val wpm = remember { store.loadSettings().wpm }
-    val duration = remember(words, wpm) { formatDurationSeconds(ceilDurationSeconds(words, wpm)) }
+    val unitCount = remember(text) { countReadingUnits(text) }
+    val speed = remember { store.loadSettings().speed }
+    val duration = remember(unitCount, speed) { formatDurationSeconds(ceilDurationSeconds(unitCount, speed)) }
 
     Scaffold(
         topBar = {
@@ -86,7 +86,7 @@ fun ScriptEditorScreen(store: LocalStore, scriptId: Long, onBack: () -> Unit, on
                 ) { Text("＋ 粘贴内容") }
                 OutlinedButton(onClick = { text = "" }, modifier = Modifier.weight(1f).height(52.dp)) { Text("清空") }
             }
-            Text("$words words · 预计 $duration（$wpm WPM）", fontWeight = FontWeight.Medium)
+            Text("$unitCount 字 · 预计 $duration（$speed 字/分）", fontWeight = FontWeight.Medium)
             if (text.isNotBlank()) {
                 Text("播放预览", fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 Text(text, lineHeight = 24.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -95,7 +95,7 @@ fun ScriptEditorScreen(store: LocalStore, scriptId: Long, onBack: () -> Unit, on
             Button(
                 onClick = {
                     val saved = store.saveScript(
-                        ScriptDocument(id = scriptId, title = title, rawText = text, wordCount = words)
+                        ScriptDocument(id = scriptId, title = title, rawText = text, wordCount = unitCount)
                     )
                     onSaved(saved.id)
                 },

@@ -75,7 +75,7 @@ import com.example.teleprompter.domain.playback.PlaybackControlsArrangement
 import com.example.teleprompter.domain.playback.playbackControlsArrangement
 import com.example.teleprompter.domain.playback.positionForFraction
 import com.example.teleprompter.domain.playback.segmentDurationSeconds
-import com.example.teleprompter.domain.playback.stepWpm
+import com.example.teleprompter.domain.playback.stepRate
 import com.example.teleprompter.domain.voice.VoiceFollowEngine
 import com.example.teleprompter.domain.voice.VoiceFollowState
 import com.example.teleprompter.overlay.OverlayService
@@ -124,7 +124,7 @@ fun PlaybackScreen(store: LocalStore, scriptId: Long, onExit: () -> Unit) {
             currentIndex = next.currentUnitIndex.coerceIn(0, (units.size - 1).coerceAtLeast(0))
             progress = next.characterProgress.coerceIn(0f, 1f)
         }
-        if (next.isFallbackToWpm) voiceStatus = "识别中断，固定 WPM 兜底"
+        if (next.isFallbackToWpm) voiceStatus = "识别中断，固定 字/分 兜底"
         else if (next.hasStableMatch) voiceStatus = "语音跟随中"
     }
 
@@ -134,7 +134,7 @@ fun PlaybackScreen(store: LocalStore, scriptId: Long, onExit: () -> Unit) {
         audioPermission = granted
         if (!granted) {
             voiceUnavailable = true
-            voiceStatus = "未开启麦克风，固定 WPM 兜底"
+            voiceStatus = "未开启麦克风，固定 字/分 兜底"
         }
     }
 
@@ -148,23 +148,23 @@ fun PlaybackScreen(store: LocalStore, scriptId: Long, onExit: () -> Unit) {
 
                 override fun onUnavailable(reason: String) {
                     voiceUnavailable = true
-                    voiceStatus = "$reason，固定 WPM 兜底"
+                    voiceStatus = "$reason，固定 字/分 兜底"
                 }
 
                 override fun onError(code: Int) {
                     if (code == android.speech.SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
                         voiceUnavailable = true
-                        voiceStatus = "麦克风权限不可用，固定 WPM 兜底"
+                        voiceStatus = "麦克风权限不可用，固定 字/分 兜底"
                     }
                 }
             }
         )
     }
 
-    fun nudgeWpm(delta: Int) {
-        val next = stepWpm(settings.wpm, delta)
-        if (next != settings.wpm) {
-            settings = settings.copy(wpm = next)
+    fun nudgeSpeed(delta: Int) {
+        val next = stepRate(settings.speed, delta)
+        if (next != settings.speed) {
+            settings = settings.copy(speed = next)
             store.saveSettings(settings)
         }
     }
@@ -210,7 +210,7 @@ fun PlaybackScreen(store: LocalStore, scriptId: Long, onExit: () -> Unit) {
         }
         if (!audioPermission) {
             voiceUnavailable = true
-            voiceStatus = "需要麦克风权限，固定 WPM 兜底"
+            voiceStatus = "需要麦克风权限，固定 字/分 兜底"
             requestAudioPermission.launch(Manifest.permission.RECORD_AUDIO)
             return@LaunchedEffect
         }
@@ -220,7 +220,7 @@ fun PlaybackScreen(store: LocalStore, scriptId: Long, onExit: () -> Unit) {
         applyVoiceState(voiceEngine.state())
         if (!speechRecognizer.start()) {
             voiceUnavailable = true
-            voiceStatus = "语音识别不可用，固定 WPM 兜底"
+            voiceStatus = "语音识别不可用，固定 字/分 兜底"
         }
     }
 
@@ -232,10 +232,10 @@ fun PlaybackScreen(store: LocalStore, scriptId: Long, onExit: () -> Unit) {
         }
     }
 
-    LaunchedEffect(isPlaying, currentIndex, settings.wpm, settings.promptMode, voiceState.isFallbackToWpm, voiceUnavailable) {
+    LaunchedEffect(isPlaying, currentIndex, settings.speed, settings.promptMode, voiceState.isFallbackToWpm, voiceUnavailable) {
         val fixedPlaybackEnabled = settings.promptMode == PromptMode.FIXED_WPM || voiceState.isFallbackToWpm || voiceUnavailable
         if (!isPlaying || !fixedPlaybackEnabled || units.isEmpty() || currentIndex !in units.indices) return@LaunchedEffect
-        val duration = segmentDurationSeconds(units[currentIndex], settings.wpm)
+        val duration = segmentDurationSeconds(units[currentIndex], settings.speed)
         while (isPlaying) {
             delay(100)
             progress += (0.1f / duration.toFloat())
@@ -271,22 +271,22 @@ fun PlaybackScreen(store: LocalStore, scriptId: Long, onExit: () -> Unit) {
                     )
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            when {
-                                settings.promptMode == PromptMode.FIXED_WPM -> "固定 ${settings.wpm} WPM"
-                                voiceUnavailable || voiceState.isFallbackToWpm -> "固定 WPM 兜底"
-                                else -> "语音跟随"
-                            },
+                                when {
+                                    settings.promptMode == PromptMode.FIXED_WPM -> "固定 ${settings.speed} 字/分"
+                                    voiceUnavailable || voiceState.isFallbackToWpm -> "固定 字/分 兜底"
+                                    else -> "语音跟随"
+                                },
                             color = MaterialTheme.colorScheme.secondary,
                             fontSize = 11.sp
                         )
                         TextButton(
-                            onClick = { nudgeWpm(-5) },
+                            onClick = { nudgeSpeed(-10) },
                             contentPadding = PaddingValues(horizontal = 3.dp, vertical = 0.dp)
-                        ) { Text("−5", fontSize = 10.sp) }
+                        ) { Text("−10", fontSize = 10.sp) }
                         TextButton(
-                            onClick = { nudgeWpm(+5) },
+                            onClick = { nudgeSpeed(+10) },
                             contentPadding = PaddingValues(horizontal = 3.dp, vertical = 0.dp)
-                        ) { Text("+5", fontSize = 10.sp) }
+                        ) { Text("+10", fontSize = 10.sp) }
                         Text("· ${if (settings.landscape) "横屏" else "竖屏"}", color = MaterialTheme.colorScheme.secondary, fontSize = 11.sp)
                     }
                 }
@@ -340,7 +340,7 @@ fun PlaybackScreen(store: LocalStore, scriptId: Long, onExit: () -> Unit) {
                                 softWrap = false
                             )
                             Text(
-                                remainingTime(units, currentIndex, progress, settings.wpm),
+                                remainingTime(units, currentIndex, progress, settings.speed),
                                 color = MaterialTheme.colorScheme.secondary,
                                 fontSize = 10.sp,
                                 maxLines = 1,
@@ -370,7 +370,7 @@ fun PlaybackScreen(store: LocalStore, scriptId: Long, onExit: () -> Unit) {
                         )
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("第 ${if (units.isEmpty()) 0 else currentIndex + 1} / ${units.size} 句", color = MaterialTheme.colorScheme.secondary, fontSize = 12.sp)
-                            Text("预计剩余 ${remainingTime(units, currentIndex, progress, settings.wpm)}", color = MaterialTheme.colorScheme.secondary, fontSize = 12.sp)
+                            Text("预计剩余 ${remainingTime(units, currentIndex, progress, settings.speed)}", color = MaterialTheme.colorScheme.secondary, fontSize = 12.sp)
                         }
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             Button(
@@ -404,7 +404,7 @@ fun PlaybackScreen(store: LocalStore, scriptId: Long, onExit: () -> Unit) {
                         )
                     )
                 } else if (settings.promptMode == PromptMode.VOICE_FOLLOW && !audioPermission) {
-                    Toast.makeText(context, "实时语音跟随需要麦克风权限，已保持固定 WPM", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "实时语音跟随需要麦克风权限，已保持固定 字/分", Toast.LENGTH_LONG).show()
                     requestAudioPermission.launch(Manifest.permission.RECORD_AUDIO)
                 } else {
                     OverlayService.start(context, scriptId, currentIndex, progress)
@@ -555,10 +555,10 @@ private fun <T> CompactChoices(options: List<T>, selected: T, label: (T) -> Stri
     }
 }
 
-private fun remainingTime(units: List<SpeechUnit>, index: Int, progress: Float, wpm: Int): String {
+private fun remainingTime(units: List<SpeechUnit>, index: Int, progress: Float, rate: Int): String {
     if (units.isEmpty()) return "00:00"
-    val current = (segmentDurationSeconds(units[index], wpm) * (1f - progress)).toInt()
-    val rest = units.drop(index + 1).sumOf { segmentDurationSeconds(it, wpm).toInt() }
+    val current = (segmentDurationSeconds(units[index], rate) * (1f - progress)).toInt()
+    val rest = units.drop(index + 1).sumOf { segmentDurationSeconds(it, rate).toInt() }
     return formatDurationSeconds(current + rest)
 }
 
@@ -576,6 +576,6 @@ private fun AccentColor.label() = when (this) {
 }
 
 private fun PromptMode.label() = when (this) {
-    PromptMode.FIXED_WPM -> "固定 WPM"
+    PromptMode.FIXED_WPM -> "固定速度"
     PromptMode.VOICE_FOLLOW -> "语音跟随"
 }

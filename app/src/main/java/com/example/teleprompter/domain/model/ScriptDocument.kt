@@ -19,7 +19,7 @@ enum class FontScale { SMALL, MEDIUM, LARGE, EXTRA_LARGE }
 enum class PromptMode { FIXED_WPM, VOICE_FOLLOW }
 
 data class DisplaySettings(
-    val wpm: Int = 120,
+    val speed: Int = 200,
     val accentColor: AccentColor = AccentColor.BLUE,
     val themeMode: ThemeMode = ThemeMode.DARK,
     val fontScale: FontScale = FontScale.LARGE,

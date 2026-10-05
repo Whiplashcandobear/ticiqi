@@ -9,6 +9,9 @@ permissions:
   contents: read
   actions: write
 
+env:
+  ANDROID_HOME: /usr/local/lib/android/sdk
+
 jobs:
   assemble:
     runs-on: ubuntu-latest
@@ -25,11 +28,10 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Install Android SDK packages
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
 
       - name: Build debug APK
         run: ./gradlew assembleDebug --no-daemon --console=plain

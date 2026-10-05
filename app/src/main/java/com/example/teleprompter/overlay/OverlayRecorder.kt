@@ -193,12 +193,11 @@ class OverlayRecorder(
             }
         }
         // MediaStoreOutputOptions：CameraX 自动处理 IS_PENDING（成功可见/失败清理）
-        val optionsBuilder = MediaStoreOutputOptions.Builder(
+        // rotation 交给 CameraX 依据 Preview 的 targetRotation / 传感器朝向自行处理
+        val options = MediaStoreOutputOptions.Builder(
             context.contentResolver,
             MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-        ).setContentValues(values)
-        optionsBuilder.setTargetRotation(previewRotation())
-        val options = optionsBuilder.build()
+        ).setContentValues(values).build()
         var pending = capture.output.prepareRecording(context, options)
         if (context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) ==
             PackageManager.PERMISSION_GRANTED

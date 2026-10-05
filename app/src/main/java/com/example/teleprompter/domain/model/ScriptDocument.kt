@@ -58,7 +58,7 @@ data class DisplaySettings(
     val promptMode: PromptMode = PromptMode.FIXED_WPM,
     // 默认用本地模型：国产 ROM 多无 Google 识别服务，系统识别不可用；本地模型离线且可靠。
     val asrMode: AsrMode = AsrMode.LOCAL,
-    val localModelId: String = "SMALL_CTC_ZH_INT8",
+    val localModelId: String = "TRANSDUCER_ZH_INT8_2025_06_30",
     val cloudConfig: CloudAsrConfig = CloudAsrConfig(),
     // 悬浮窗尺寸（dp），可在悬浮窗内拖角调节。
     val overlayWidthDp: Int = 320,

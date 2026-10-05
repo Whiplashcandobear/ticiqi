@@ -94,6 +94,7 @@ class SherpaOnnxAsrEngine(
 
             if (!running) return
 
+            listener?.onStatus("正在加载模型…")
             when (model.kind) {
                 ModelKind.ONLINE_CTC, ModelKind.ONLINE_TRANSDUCER -> {
                     onlineRecognizer = if (model.bundledAssetDir != null) {
@@ -233,16 +234,22 @@ class SherpaOnnxAsrEngine(
                 tokens = "$dir/tokens.txt",
                 numThreads = NUM_THREADS
             )
-            ModelKind.ONLINE_TRANSDUCER -> OnlineModelConfig(
-                transducer = OnlineTransducerModelConfig(
-                    encoder = "$dir/encoder.int8.onnx",
-                    decoder = "$dir/decoder.onnx",
-                    joiner = "$dir/joiner.int8.onnx"
-                ),
-                tokens = "$dir/tokens.txt",
-                modelType = "zipformer2",
-                numThreads = NUM_THREADS
-            )
+            ModelKind.ONLINE_TRANSDUCER -> {
+                // 不同代际的模型文件名不同（encoder.int8.onnx vs encoder-epoch-99-avg-1.int8.onnx），
+                // 按前缀从模型目录里解析，避免硬编码。
+                fun fileName(prefix: String): String =
+                    model.files.first { it.second.startsWith(prefix) }.second
+                OnlineModelConfig(
+                    transducer = OnlineTransducerModelConfig(
+                        encoder = "$dir/${fileName("encoder")}",
+                        decoder = "$dir/${fileName("decoder")}",
+                        joiner = "$dir/${fileName("joiner")}"
+                    ),
+                    tokens = "$dir/${model.files.first { it.second == "tokens.txt" }.second}",
+                    modelType = "zipformer2",
+                    numThreads = NUM_THREADS
+                )
+            }
             else -> throw IllegalArgumentException("not an online model kind")
         }
         return OnlineRecognizerConfig(

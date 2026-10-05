@@ -455,7 +455,15 @@ class OverlayService : Service() {
             voiceUnavailable || voiceState?.isFallbackToWpm == true -> "固定 字/分 兜底"
             else -> "语音跟随"
         }
-        val extra = if (voiceEngineStatus.isNotBlank()) " · $voiceEngineStatus" else ""
+        // 诊断优先级：听到但未匹配 > 引擎状态文案（模型加载/下载等）。
+        val heard = voiceState?.lastHeard.orEmpty()
+        val extra = when {
+            settings.promptMode != PromptMode.VOICE_FOLLOW -> ""
+            voiceState?.lastMatched == true -> " · 已跟随"
+            heard.isNotBlank() -> " · 听到「${heard}」未匹配"
+            voiceEngineStatus.isNotBlank() -> " · $voiceEngineStatus"
+            else -> ""
+        }
         statusText?.text = if (units.isEmpty()) "暂无台本" else "第 ${currentIndex + 1} / ${units.size} 句 · $mode$extra"
     }
 

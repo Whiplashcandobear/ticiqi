@@ -8,7 +8,11 @@ data class VoiceFollowState(
     /** 引擎侧不再主动兜底（见类注释）；此字段保留供 UI 兼容，恒为 false。 */
     val isFallbackToWpm: Boolean,
     val hasStableMatch: Boolean,
-    val lastRecognitionAtMillis: Long?
+    val lastRecognitionAtMillis: Long?,
+    /** 最近一次听到的识别文本（清洗后，截断），用于 UI 诊断"到底听到了什么"。 */
+    val lastHeard: String = "",
+    /** 最近一次识别是否成功匹配上台本。 */
+    val lastMatched: Boolean = false
 )
 
 /**
@@ -42,6 +46,8 @@ class VoiceFollowEngine(
     private var characterProgress = 0f
     private var lastValidRecognitionAt = startAtMillis
     private var hasStableMatch = false
+    private var lastHeard = ""
+    private var lastMatched = false
 
     init {
         val content = units.joinToString(" ") { it.rawText }
@@ -76,7 +82,24 @@ class VoiceFollowEngine(
     fun state(nowMillis: Long = System.currentTimeMillis()): VoiceFollowState = snapshot(nowMillis)
 
     fun onRecognition(text: String, nowMillis: Long, isFinal: Boolean = false): VoiceFollowState {
-        val match = aligner.match(text, currentClean)
+        val cleaned = aligner.cleanText(text)
+        // 流式识别的部分结果是"自会话起的累计文本"，会越来越长；只取尾部参与匹配
+        // （对齐器本就无状态整段重配，取尾足够），既限 CPU 又保证是最新说的话。
+        val utterance = if (cleaned.length > MAX_UTT_CLEAN_CHARS) {
+            cleaned.takeLast(MAX_UTT_CLEAN_CHARS)
+        } else {
+            cleaned
+        }
+        lastHeard = if (utterance.length > HEARD_SNIPPET_CHARS) {
+            utterance.takeLast(HEARD_SNIPPET_CHARS)
+        } else {
+            utterance
+        }
+        if (utterance.isEmpty()) {
+            return snapshot(nowMillis)
+        }
+        val match = aligner.match(utterance, currentClean)
+        lastMatched = match != null
         if (match == null) {
             // 与台本无关的话（乱说/寒暄/短暂跑题）：光标原地不动。
             return snapshot(nowMillis)
@@ -127,6 +150,16 @@ class VoiceFollowEngine(
         characterProgress = characterProgress,
         isFallbackToWpm = false,
         hasStableMatch = hasStableMatch,
-        lastRecognitionAtMillis = if (hasStableMatch) lastValidRecognitionAt else null
+        lastRecognitionAtMillis = if (hasStableMatch) lastValidRecognitionAt else null,
+        lastHeard = lastHeard,
+        lastMatched = lastMatched
     )
+
+    companion object {
+        /** 参与匹配的识别文本（清洗后）最大长度，取尾部。 */
+        private const val MAX_UTT_CLEAN_CHARS = 120
+
+        /** 状态里携带的"听到"摘要长度。 */
+        private const val HEARD_SNIPPET_CHARS = 10
+    }
 }

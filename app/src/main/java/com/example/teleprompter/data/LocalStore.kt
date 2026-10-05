@@ -65,7 +65,7 @@ class LocalStore(context: Context) {
                 .getOrDefault(PromptMode.FIXED_WPM),
             asrMode = runCatching { AsrMode.valueOf(item.optString("asrMode", "LOCAL")) }
                 .getOrDefault(AsrMode.LOCAL),
-            localModelId = item.optString("localModelId", "SMALL_CTC_ZH_INT8"),
+            localModelId = item.optString("localModelId", "TRANSDUCER_ZH_INT8_2025_06_30"),
             cloudConfig = runCatching { cloudConfigFrom(item.optJSONObject("cloudConfig")) }
                 .getOrDefault(CloudAsrConfig()),
             overlayWidthDp = item.optInt("overlayWidthDp", 320),

@@ -36,6 +36,23 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x gradlew
 
+      # 2025-06-30 encoder.int8.onnx 约 161MB，超过 GitHub 100MB 单文件限制，
+      # 不能进 git：构建时从 HF 下载（Actions 访问 HF 无限制；hf-mirror 兜底）。
+      - name: Download bundled 2025 ASR model
+        run: |
+          DEST=app/src/main/assets/models/sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30
+          mkdir -p "$DEST"
+          BASE=https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30/resolve/main
+          MIRROR=https://hf-mirror.com/csukuangfj/sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30/resolve/main
+          for f in encoder.int8.onnx decoder.onnx joiner.int8.onnx tokens.txt; do
+            curl -sfL --retry 3 --connect-timeout 30 -o "$DEST/$f" "$BASE/$f" \
+              || curl -sfL --retry 3 --connect-timeout 30 -o "$DEST/$f" "$MIRROR/$f"
+          done
+          test -s "$DEST/tokens.txt"
+          ENC_SIZE=$(stat -c%s "$DEST/encoder.int8.onnx")
+          echo "encoder.int8.onnx = $ENC_SIZE bytes"
+          test "$ENC_SIZE" -gt 100000000
+
       - name: Build debug APK
         run: ./gradlew assembleDebug --no-daemon --console=plain
 

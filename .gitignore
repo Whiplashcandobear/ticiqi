@@ -26,3 +26,6 @@ google-services.json
 *.aab
 captures/
 *.log
+
+# 161MB 超过 GitHub 100MB 单文件限制，由 CI 构建时下载
+app/src/main/assets/models/sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30/

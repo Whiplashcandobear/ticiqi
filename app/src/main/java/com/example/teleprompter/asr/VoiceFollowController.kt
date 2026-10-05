@@ -35,6 +35,11 @@ class VoiceFollowController(
     private var engine: AsrEngine? = null
     private val remaining = ArrayDeque<AsrMode>()
     private var currentMode: AsrMode? = null
+    private var lastFeedPostAt = 0L
+
+    companion object {
+        private const val FEED_POST_INTERVAL_MS = 250L
+    }
 
     private val listener = object : AsrEngine.Listener {
         override fun onPartial(text: String) = feed(text, false)
@@ -100,7 +105,13 @@ class VoiceFollowController(
     }
 
     private fun feed(text: String, isFinal: Boolean) {
-        postState(voiceEngine.onRecognition(text, System.currentTimeMillis(), isFinal))
+        val state = voiceEngine.onRecognition(text, System.currentTimeMillis(), isFinal)
+        // 流式引擎 ~0.1s 就发一次 partial，UI 按需节流；final 结果总是立即上屏。
+        val now = System.currentTimeMillis()
+        if (isFinal || now - lastFeedPostAt >= FEED_POST_INTERVAL_MS) {
+            lastFeedPostAt = now
+            postState(state)
+        }
     }
 
     private fun postState(state: VoiceFollowState = voiceEngine.state()) {

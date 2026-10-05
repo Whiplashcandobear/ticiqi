@@ -11,9 +11,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.content.pm.PackageManager
 import android.graphics.Color
-import android.graphics.Matrix
 import android.graphics.PixelFormat
-import android.graphics.SurfaceTexture
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
@@ -25,9 +23,9 @@ import android.text.style.ForegroundColorSpan
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
-import android.view.TextureView
 import android.view.View
 import android.view.WindowManager
+import androidx.camera.view.PreviewView
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -90,15 +88,10 @@ class OverlayService : Service() {
     // 全屏取景预览（飓风式）：独立的全屏窗口铺在提词窗口之下，
     // 提词窗口保持原大小/位置浮在上层，缩放/拖动互不影响
     private var previewWindow: FrameLayout? = null
-    private var previewView: TextureView? = null
+    private var previewView: PreviewView? = null
     private var previewMode = false
     private var previewAttached = false
     private var pendingRecordStart = false
-    // CENTER_CROP 去重：尺寸没变就不重设变换矩阵
-    private var lastCropBufferW = 0
-    private var lastCropBufferH = 0
-    private var lastCropViewW = 0
-    private var lastCropViewH = 0
     private var collapseButton: TextView? = null
     // 连续滚动跟随：用户手动滚动后暂停自动跟随一段时间
     private var lastUserScrollAt = 0L
@@ -547,20 +540,22 @@ class OverlayService : Service() {
         }
     }
 
-    /** TextureView Surface 就绪后：挂起预览；若等待开始录像则同时触发。 */
+    /**
+     * 开启全屏取景：把 PreviewView 的 surfaceProvider 交给 CameraX。
+     * PreviewView 自己处理比例/旋转/镜像，不需要我们算矩阵。
+     */
     private fun attachPreviewIfReady() {
         val rec = recorder ?: return
-        val tv = previewView ?: return
-        if (!tv.isAvailable || previewAttached) return
-        val st = tv.surfaceTexture ?: return
+        val view = previewView ?: return
+        if (previewAttached) return
+        previewAttached = true
+        rec.attachPreview(view.surfaceProvider)
         if (pendingRecordStart) {
             pendingRecordStart = false
             rec.start {
                 scope.launch { updateRecordButton(); updateStatus() }
             }
         }
-        previewAttached = true
-        rec.attachPreview(st)
     }
 
     /** 进入取景预览：创建独立全屏预览窗口铺底，提词窗口浮在上层保持原样。 */
@@ -599,30 +594,15 @@ class OverlayService : Service() {
             isClickable = true
             setOnClickListener { /* 预览区吞掉点击，不穿透 */ }
         }
-        val tv = TextureView(this).apply {
-            surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
-                    applyPreviewCrop()
-                    attachPreviewIfReady()
-                }
-
-                override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) {
-                    applyPreviewCrop()
-                }
-
-                override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
-                    recorder?.detachPreview()
-                    previewAttached = false
-                    return true
-                }
-
-                override fun onSurfaceTextureUpdated(st: SurfaceTexture) {
-                    // 首帧到达后预览尺寸已就绪，再校一次裁剪
-                    applyPreviewCrop()
-                }
-            }
+        val view = PreviewView(this).apply {
+            // COMPATIBLE 内部用 TextureView 实现，scaleX 镜像才有效
+            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+            // FILL_CENTER = 等比放大铺满并居中裁切（CENTER_CROP），官方标准做法
+            scaleType = PreviewView.ScaleType.FILL_CENTER
+            // 前置摄像头自拍视角水平镜像（CameraX 只镜像拍照，不镜像取景预览）
+            scaleX = -1f
         }
-        container.addView(tv, FrameLayout.LayoutParams(-1, -1))
+        container.addView(view, FrameLayout.LayoutParams(-1, -1))
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -633,50 +613,9 @@ class OverlayService : Service() {
         )
         windowManager.addView(container, params)
         previewWindow = container
-        previewView = tv
+        previewView = view
     }
 
-    /**
-     * 预览画面 CENTER_CROP：预览 buffer（16:9 竖屏，由 OverlayRecorder 显式设定）
-     * 等比放大铺满全屏后居中裁剪，既不拉伸变形也不留黑边。水平镜像并入矩阵（前摄自拍视角）。
-     *
-     * 注意：setTransform 的矩阵作用在 **buffer 像素坐标系**（不是 view 坐标），
-     * 正确写法是「按 buffer 中心缩放 + 平移到 view 中心」；用 view 中心当锚点会让
-     * 画面被放大数倍且偏移（只剩局部放大画面）。
-     */
-    private fun applyPreviewCrop() {
-        val tv = previewView ?: return
-        val bs = recorder?.previewSize ?: return
-        val vw = tv.width
-        val vh = tv.height
-        if (vw == 0 || vh == 0 || bs.width == 0 || bs.height == 0) return
-        if (bs.width == lastCropBufferW && bs.height == lastCropBufferH && vw == lastCropViewW && vh == lastCropViewH) return
-        lastCropBufferW = bs.width
-        lastCropBufferH = bs.height
-        lastCropViewW = vw
-        lastCropViewH = vh
-        val bw = bs.width.toFloat()
-        val bh = bs.height.toFloat()
-        val cropScale = maxOf(vw / bw, vh / bh)
-        val fitScale = minOf(vw / bw, vh / bh)
-        // 若相机没按我们请求的 buffer 尺寸输出（scale 过大说明画面比预期小很多），
-        // 宁可等比缩小留黑边，也不要过度放大导致糊成一片
-        val scale = if (cropScale <= MAX_CROP_UPSCALE) cropScale else fitScale
-        // 水平镜像：x' = -scale*x + dx。变换后内容区间为 [dx - scale*bw, dx]，
-        // 让其中心 dx - scale*bw/2 落在屏幕中心 vw/2，解得 dx = (vw + scale*bw)/2。
-        // 注意这里是「加号」：用减号版本会把整幅画面推出屏幕左侧 → 黑屏。
-        val dx = (vw + bw * scale) / 2f
-        val dy = (vh - bh * scale) / 2f
-        val matrix = Matrix()
-        matrix.setValues(
-            floatArrayOf(
-                -scale, 0f, dx,
-                0f, scale, dy,
-                0f, 0f, 1f
-            )
-        )
-        tv.setTransform(matrix)
-    }
 
     private fun removePreviewWindow() {
         val window = previewWindow ?: return
@@ -729,9 +668,7 @@ class OverlayService : Service() {
         val rec = recorder
         val recIndicator = if (rec?.isRecording == true) {
             val s = rec.elapsedSeconds()
-            // 带上取景分辨率，便于排查预览比例/黑屏问题
-            val ps = rec.previewSize
-            " ● 录像中 ${s / 60}:${(s % 60).toString().padStart(2, '0')} ${ps.width}×${ps.height}"
+            " ● 录像中 ${s / 60}:${(s % 60).toString().padStart(2, '0')}"
         } else ""
         val mode = when {
             settings.promptMode == PromptMode.FIXED_WPM -> "固定 ${settings.speed} 字/分"

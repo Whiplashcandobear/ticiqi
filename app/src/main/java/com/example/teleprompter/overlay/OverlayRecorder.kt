@@ -12,6 +12,8 @@ import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.provider.MediaStore
 import android.util.Size
@@ -50,6 +52,7 @@ class OverlayRecorder(
     private var pendingStart = false
     private var startCallback: (() -> Unit)? = null
     private var opening = false // 防止相机在打开过程中被二次 openCamera（报错代码 3/2）
+    private var openRetries = 0 // 相机被占用（代码 3/6）时的重试次数
 
     /** 预览 buffer 的实际尺寸（竖屏化，w<h）。OverlayService 据此做 CENTER_CROP 变换。 */
     var previewSize: Size = Size(1080, 1920)
@@ -208,6 +211,7 @@ class OverlayRecorder(
             cm.openCamera(cameraId, object : CameraDevice.StateCallback() {
                 override fun onOpened(device: CameraDevice) {
                     opening = false
+                    openRetries = 0
                     camera = device
                     rebuildSession()
                 }
@@ -220,6 +224,19 @@ class OverlayRecorder(
 
                 override fun onError(device: CameraDevice, error: Int) {
                     opening = false
+                    // 相机释放是异步的：上一个实例（自己或系统相机）尚未彻底释放时，
+                    // 会报 ERROR_CAMERA_IN_USE(3)/ERROR_MAX_CAMERAS_IN_USE(6)，
+                    // 等 1.2s 再试一次即可打开。
+                    if (error == ERROR_CAMERA_IN_USE || error == ERROR_MAX_CAMERAS_IN_USE) {
+                        if (openRetries < MAX_OPEN_RETRIES) {
+                            openRetries++
+                            val handler = Handler(Looper.getMainLooper())
+                            handler.postDelayed({
+                                if (camera == null && !isRecording) openCamera()
+                            }, OPEN_RETRY_DELAY_MS)
+                            return
+                        }
+                    }
                     onError("打开相机失败（代码 $error）")
                     releaseCamera()
                 }
@@ -359,5 +376,13 @@ class OverlayRecorder(
         uri
     } catch (e: Throwable) {
         null
+    }
+
+    private companion object {
+        // CameraDevice.StateCallback 的错误码
+        const val ERROR_CAMERA_IN_USE = 3
+        const val ERROR_MAX_CAMERAS_IN_USE = 6
+        const val MAX_OPEN_RETRIES = 4
+        const val OPEN_RETRY_DELAY_MS = 1200L
     }
 }

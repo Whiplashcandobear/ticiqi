@@ -52,7 +52,23 @@ class LocalStore(context: Context) {
         preferences.edit().putString(KEY_SCRIPTS, JSONArray(updated.map(::scriptJson)).toString()).apply()
     }
 
-    fun loadSettings(): DisplaySettings = runCatching {
+    fun loadSettings(): DisplaySettings {
+        val loaded = loadSettingsRaw()
+        // 一次性默认值迁移：老版本默认「固定速度 + 系统识别」，
+        // 升级后统一改为「实时语音跟随 + 本地模型」（用户之后手动改的不再被覆盖）。
+        if (loaded.defaultsVersion < DEFAULTS_VERSION) {
+            val migrated = loaded.copy(
+                promptMode = PromptMode.VOICE_FOLLOW,
+                asrMode = AsrMode.LOCAL,
+                defaultsVersion = DEFAULTS_VERSION
+            )
+            saveSettings(migrated)
+            return migrated
+        }
+        return loaded
+    }
+
+    private fun loadSettingsRaw(): DisplaySettings = runCatching {
         val item = JSONObject(preferences.getString(KEY_SETTINGS, "{}") ?: "{}")
         DisplaySettings(
             speed = item.optInt("speed", item.optInt("wpm", 200)),
@@ -61,15 +77,16 @@ class LocalStore(context: Context) {
             fontScale = runCatching { FontScale.valueOf(item.optString("fontScale", "LARGE")) }.getOrDefault(FontScale.LARGE),
             countdownSeconds = item.optInt("countdownSeconds", 5),
             landscape = item.optBoolean("landscape", false),
-            promptMode = runCatching { PromptMode.valueOf(item.optString("promptMode", "FIXED_WPM")) }
-                .getOrDefault(PromptMode.FIXED_WPM),
+            promptMode = runCatching { PromptMode.valueOf(item.optString("promptMode", "VOICE_FOLLOW")) }
+                .getOrDefault(PromptMode.VOICE_FOLLOW),
             asrMode = runCatching { AsrMode.valueOf(item.optString("asrMode", "LOCAL")) }
                 .getOrDefault(AsrMode.LOCAL),
             localModelId = item.optString("localModelId", "TRANSDUCER_ZH_INT8_2025_06_30"),
             cloudConfig = runCatching { cloudConfigFrom(item.optJSONObject("cloudConfig")) }
                 .getOrDefault(CloudAsrConfig()),
             overlayWidthDp = item.optInt("overlayWidthDp", 320),
-            overlayHeightDp = item.optInt("overlayHeightDp", 320)
+            overlayHeightDp = item.optInt("overlayHeightDp", 320),
+            defaultsVersion = item.optInt("defaultsVersion", 0)
         )
     }.getOrDefault(DisplaySettings())
 
@@ -98,6 +115,7 @@ class LocalStore(context: Context) {
             .put("cloudConfig", cloudJson)
             .put("overlayWidthDp", settings.overlayWidthDp)
             .put("overlayHeightDp", settings.overlayHeightDp)
+            .put("defaultsVersion", settings.defaultsVersion)
         preferences.edit().putString(KEY_SETTINGS, item.toString()).apply()
     }
 
@@ -128,5 +146,7 @@ class LocalStore(context: Context) {
     private companion object {
         const val KEY_SCRIPTS = "scripts"
         const val KEY_SETTINGS = "settings"
+        // 默认播放方式迁移版本：1 = 实时语音跟随 + 本地模型
+        const val DEFAULTS_VERSION = 1
     }
 }

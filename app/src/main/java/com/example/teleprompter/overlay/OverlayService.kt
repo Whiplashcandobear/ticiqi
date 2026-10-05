@@ -569,13 +569,6 @@ class OverlayService : Service() {
         collapseButton?.visibility = View.VISIBLE
         // 提词面板改半透明，身后的取景画面能透出来（对标飓风效果）
         overlayRoot?.background = roundedBackground(Color.argb(110, 10, 14, 22), 18)
-        // 把 App 自己的页面退到后台：预览画面背后不留 App 操作界面（对标飓风的沉浸取景）。
-        // 有悬浮窗权限的应用豁免 Android 10+ 后台启动限制，从前台服务跳桌面可行。
-        runCatching {
-            val home = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            startActivity(home)
-        }
         showPreviewWindow()
         bringTranscriptToFront()
         attachPreviewIfReady()
@@ -601,6 +594,8 @@ class OverlayService : Service() {
     private fun showPreviewWindow() {
         if (previewWindow != null) return
         val container = FrameLayout(this).apply {
+            // 不透明黑底：即使取景画面尚未出帧，背后的 App 页面也不会透出来
+            setBackgroundColor(Color.BLACK)
             isClickable = true
             setOnClickListener { /* 预览区吞掉点击，不穿透 */ }
         }
@@ -634,7 +629,7 @@ class OverlayService : Service() {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
-            PixelFormat.TRANSLUCENT
+            PixelFormat.OPAQUE
         )
         windowManager.addView(container, params)
         previewWindow = container

@@ -55,14 +55,17 @@ data class DisplaySettings(
     val fontScale: FontScale = FontScale.LARGE,
     val countdownSeconds: Int = 5,
     val landscape: Boolean = false,
-    val promptMode: PromptMode = PromptMode.FIXED_WPM,
+    // 默认实时语音跟随：跟读提词是这个 App 的主场景；固定速度仅作为识别不可用时的兜底。
+    val promptMode: PromptMode = PromptMode.VOICE_FOLLOW,
     // 默认用本地模型：国产 ROM 多无 Google 识别服务，系统识别不可用；本地模型离线且可靠。
     val asrMode: AsrMode = AsrMode.LOCAL,
     val localModelId: String = "TRANSDUCER_ZH_INT8_2025_06_30",
     val cloudConfig: CloudAsrConfig = CloudAsrConfig(),
     // 悬浮窗尺寸（dp），可在悬浮窗内拖角调节。
     val overlayWidthDp: Int = 320,
-    val overlayHeightDp: Int = 320
+    val overlayHeightDp: Int = 320,
+    // 已应用过的「默认播放方式」迁移版本，见 LocalStore.DEFAULTS_VERSION
+    val defaultsVersion: Int = 0
 )
 
 data class SpeechUnit(

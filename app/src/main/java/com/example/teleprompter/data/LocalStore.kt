@@ -3,6 +3,8 @@ package com.example.teleprompter.data
 import android.content.Context
 import com.example.teleprompter.domain.model.DisplaySettings
 import com.example.teleprompter.domain.model.AccentColor
+import com.example.teleprompter.domain.model.AsrMode
+import com.example.teleprompter.domain.model.CloudAsrConfig
 import com.example.teleprompter.domain.model.FontScale
 import com.example.teleprompter.domain.model.PromptMode
 import com.example.teleprompter.domain.model.ScriptDocument
@@ -60,11 +62,27 @@ class LocalStore(context: Context) {
             countdownSeconds = item.optInt("countdownSeconds", 5),
             landscape = item.optBoolean("landscape", false),
             promptMode = runCatching { PromptMode.valueOf(item.optString("promptMode", "FIXED_WPM")) }
-                .getOrDefault(PromptMode.FIXED_WPM)
+                .getOrDefault(PromptMode.FIXED_WPM),
+            asrMode = runCatching { AsrMode.valueOf(item.optString("asrMode", "SYSTEM")) }
+                .getOrDefault(AsrMode.SYSTEM),
+            localModelId = item.optString("localModelId", "SMALL_CTC_ZH_INT8"),
+            cloudConfig = runCatching { cloudConfigFrom(item.optJSONObject("cloudConfig")) }
+                .getOrDefault(CloudAsrConfig())
         )
     }.getOrDefault(DisplaySettings())
 
     fun saveSettings(settings: DisplaySettings) {
+        val cc = settings.cloudConfig
+        val cloudJson = JSONObject()
+            .put("endpoint", cc.endpoint)
+            .put("apiKey", cc.apiKey)
+            .put("method", cc.method)
+            .put("contentType", cc.contentType)
+            .put("headersJson", cc.headersJson)
+            .put("bodyTemplate", cc.bodyTemplate)
+            .put("resultPath", cc.resultPath)
+            .put("audioEncoding", cc.audioEncoding)
+            .put("chunkMillis", cc.chunkMillis)
         val item = JSONObject()
             .put("speed", settings.speed)
             .put("accentColor", settings.accentColor.name)
@@ -73,8 +91,26 @@ class LocalStore(context: Context) {
             .put("countdownSeconds", settings.countdownSeconds)
             .put("landscape", settings.landscape)
             .put("promptMode", settings.promptMode.name)
+            .put("asrMode", settings.asrMode.name)
+            .put("localModelId", settings.localModelId)
+            .put("cloudConfig", cloudJson)
         preferences.edit().putString(KEY_SETTINGS, item.toString()).apply()
     }
+
+    private fun cloudConfigFrom(obj: JSONObject?): CloudAsrConfig = if (obj == null) CloudAsrConfig() else CloudAsrConfig(
+        endpoint = obj.optString("endpoint", ""),
+        apiKey = obj.optString("apiKey", ""),
+        method = obj.optString("method", "POST"),
+        contentType = obj.optString("contentType", "application/json"),
+        headersJson = obj.optString("headersJson", ""),
+        bodyTemplate = obj.optString(
+            "bodyTemplate",
+            """{"audio":"{base64}","sample_rate":{sampleRate},"format":"{format}"}"""
+        ),
+        resultPath = obj.optString("resultPath", "text"),
+        audioEncoding = obj.optString("audioEncoding", "wav"),
+        chunkMillis = obj.optInt("chunkMillis", 1000)
+    )
 
     private fun scriptJson(document: ScriptDocument): JSONObject = JSONObject()
         .put("id", document.id)

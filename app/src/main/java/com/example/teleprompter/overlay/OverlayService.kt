@@ -45,9 +45,8 @@ import com.example.teleprompter.domain.playback.playbackUnits
 import com.example.teleprompter.domain.playback.positionForFraction
 import com.example.teleprompter.domain.playback.segmentDurationSeconds
 import com.example.teleprompter.domain.playback.stepRate
-import com.example.teleprompter.domain.voice.VoiceFollowEngine
 import com.example.teleprompter.domain.voice.VoiceFollowState
-import com.example.teleprompter.voice.AndroidSpeechRecognizer
+import com.example.teleprompter.asr.VoiceFollowController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -78,10 +77,10 @@ class OverlayService : Service() {
     private val lineViews = mutableListOf<TextView>()
     private var playButton: TextView? = null
     private var statusText: TextView? = null
-    private var voiceEngine: VoiceFollowEngine? = null
-    private var speechRecognizer: AndroidSpeechRecognizer? = null
+    private var controller: VoiceFollowController? = null
     private var voiceState: VoiceFollowState? = null
     private var voiceUnavailable = false
+    private var voiceEngineStatus = ""
 
     override fun onCreate() {
         super.onCreate()
@@ -130,9 +129,8 @@ class OverlayService : Service() {
 
     override fun onDestroy() {
         playbackJob?.cancel()
-        speechRecognizer?.close()
-        speechRecognizer = null
-        voiceEngine = null
+        controller?.stop()
+        controller = null
         savePlaybackPosition()
         overlayRoot?.let { root ->
             runCatching { windowManager.removeViewImmediate(root) }
@@ -180,6 +178,7 @@ class OverlayService : Service() {
                     val position = positionForFraction(value / 1000f, units.size)
                     currentIndex = position.index
                     this@OverlayService.progress = position.progress
+                    controller?.setCursor(position.index, position.progress)
                     renderTranscript()
                 }
 
@@ -211,7 +210,7 @@ class OverlayService : Service() {
         controls.addView(actionButton("慢10") { changeSpeed(-10) })
         playButton = actionButton("暂停") {
             isPlaying = !isPlaying
-            if (isPlaying) startVoiceFollowIfNeeded() else speechRecognizer?.stop()
+            if (isPlaying) startVoiceFollowIfNeeded() else controller?.stop()
             updatePlayButton()
         }
         controls.addView(playButton)
@@ -332,7 +331,7 @@ class OverlayService : Service() {
             while (isActive) {
                 delay(100)
                 if (settings.promptMode == PromptMode.VOICE_FOLLOW && isPlaying) {
-                    applyVoiceState(voiceEngine?.onTick(System.currentTimeMillis()))
+                    controller?.onTick(System.currentTimeMillis())
                 }
                 val fixedPlaybackEnabled = settings.promptMode == PromptMode.FIXED_WPM ||
                     voiceUnavailable || voiceState?.isFallbackToWpm == true
@@ -391,7 +390,8 @@ class OverlayService : Service() {
             voiceUnavailable || voiceState?.isFallbackToWpm == true -> "固定 字/分 兜底"
             else -> "语音跟随"
         }
-        statusText?.text = if (units.isEmpty()) "暂无台本" else "第 ${currentIndex + 1} / ${units.size} 句 · $mode"
+        val extra = if (voiceEngineStatus.isNotBlank()) " · $voiceEngineStatus" else ""
+        statusText?.text = if (units.isEmpty()) "暂无台本" else "第 ${currentIndex + 1} / ${units.size} 句 · $mode$extra"
     }
 
     private fun applyVoiceState(next: VoiceFollowState?) {
@@ -406,11 +406,11 @@ class OverlayService : Service() {
     }
 
     private fun startVoiceFollowIfNeeded() {
-        speechRecognizer?.close()
-        speechRecognizer = null
-        voiceEngine = null
+        controller?.stop()
+        controller = null
         voiceState = null
         voiceUnavailable = false
+        voiceEngineStatus = ""
         if (settings.promptMode != PromptMode.VOICE_FOLLOW || !isPlaying || units.isEmpty()) {
             updateStatus()
             return
@@ -420,35 +420,23 @@ class OverlayService : Service() {
             updateStatus()
             return
         }
-        val engine = VoiceFollowEngine(units, currentIndex)
-        engine.startSession()
-        voiceEngine = engine
-        applyVoiceState(engine.state())
-        speechRecognizer = AndroidSpeechRecognizer(
+        val ctrl = VoiceFollowController(
             applicationContext,
-            object : AndroidSpeechRecognizer.Listener {
-                override fun onText(text: String, isFinal: Boolean) {
-                    applyVoiceState(engine.onRecognition(text, System.currentTimeMillis()))
-                }
-
-                override fun onUnavailable(reason: String) {
-                    voiceUnavailable = true
-                    updateStatus()
-                }
-
-                override fun onError(code: Int) {
-                    if (code == android.speech.SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
-                        voiceUnavailable = true
-                        updateStatus()
-                    }
-                }
-            }
-        ).also { recognizer ->
-            if (!recognizer.start()) {
+            settings,
+            units,
+            currentIndex,
+            onState = { applyVoiceState(it) },
+            onUnavailable = { reason ->
                 voiceUnavailable = true
                 updateStatus()
+            },
+            onStatus = { msg ->
+                voiceEngineStatus = msg
+                updateStatus()
             }
-        }
+        )
+        controller = ctrl
+        ctrl.start()
     }
 
     private fun updateSeekBar() {

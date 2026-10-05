@@ -76,14 +76,14 @@ import com.example.teleprompter.domain.playback.playbackControlsArrangement
 import com.example.teleprompter.domain.playback.positionForFraction
 import com.example.teleprompter.domain.playback.segmentDurationSeconds
 import com.example.teleprompter.domain.playback.stepRate
-import com.example.teleprompter.domain.voice.VoiceFollowEngine
 import com.example.teleprompter.domain.voice.VoiceFollowState
 import com.example.teleprompter.overlay.OverlayService
 import com.example.teleprompter.presentation.theme.TeleprompterTheme
 import com.example.teleprompter.presentation.theme.accentColor
 import com.example.teleprompter.presentation.theme.liveHighlightColor
+import com.example.teleprompter.asr.VoiceFollowController
 import com.example.teleprompter.util.formatDurationSeconds
-import com.example.teleprompter.voice.AndroidSpeechRecognizer
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 
 @Composable
@@ -113,8 +113,18 @@ fun PlaybackScreen(store: LocalStore, scriptId: Long, onExit: () -> Unit) {
         mutableStateOf(settings.promptMode == PromptMode.VOICE_FOLLOW && !audioPermission)
     }
     var voiceStatus by rememberSaveable { mutableStateOf("") }
-    val voiceEngine = remember(units) { VoiceFollowEngine(units, currentIndex) }
-    var voiceState by remember(voiceEngine) { mutableStateOf(voiceEngine.state()) }
+    var controller by remember { mutableStateOf<VoiceFollowController?>(null) }
+    var voiceState by remember {
+        mutableStateOf(
+            VoiceFollowState(
+                currentUnitIndex = currentIndex,
+                characterProgress = progress,
+                isFallbackToWpm = false,
+                hasStableMatch = false,
+                lastRecognitionAtMillis = null
+            )
+        )
+    }
     val latestIndex by rememberUpdatedState(currentIndex)
     val latestProgress by rememberUpdatedState(progress)
 
@@ -138,29 +148,6 @@ fun PlaybackScreen(store: LocalStore, scriptId: Long, onExit: () -> Unit) {
         }
     }
 
-    val speechRecognizer = remember(voiceEngine) {
-        AndroidSpeechRecognizer(
-            context = context,
-            listener = object : AndroidSpeechRecognizer.Listener {
-                override fun onText(text: String, isFinal: Boolean) {
-                    applyVoiceState(voiceEngine.onRecognition(text, System.currentTimeMillis()))
-                }
-
-                override fun onUnavailable(reason: String) {
-                    voiceUnavailable = true
-                    voiceStatus = "$reason，固定 字/分 兜底"
-                }
-
-                override fun onError(code: Int) {
-                    if (code == android.speech.SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
-                        voiceUnavailable = true
-                        voiceStatus = "麦克风权限不可用，固定 字/分 兜底"
-                    }
-                }
-            }
-        )
-    }
-
     fun nudgeSpeed(delta: Int) {
         val next = stepRate(settings.speed, delta)
         if (next != settings.speed) {
@@ -177,10 +164,6 @@ fun PlaybackScreen(store: LocalStore, scriptId: Long, onExit: () -> Unit) {
             activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             store.saveScript(document.copy(lastPlaybackUnit = latestIndex, lastPlaybackProgress = latestProgress))
         }
-    }
-
-    DisposableEffect(speechRecognizer) {
-        onDispose { speechRecognizer.close() }
     }
 
     DisposableEffect(settings.landscape) {
@@ -203,11 +186,10 @@ fun PlaybackScreen(store: LocalStore, scriptId: Long, onExit: () -> Unit) {
         isPlaying = true
     }
 
-    LaunchedEffect(settings.promptMode, isPlaying, countdown, audioPermission) {
-        if (settings.promptMode != PromptMode.VOICE_FOLLOW || !isPlaying || countdown > 0) {
-            speechRecognizer.stop()
-            return@LaunchedEffect
-        }
+    LaunchedEffect(settings.promptMode, settings.asrMode, settings.localModelId, settings.cloudConfig, isPlaying, countdown, audioPermission) {
+        controller?.stop()
+        controller = null
+        if (settings.promptMode != PromptMode.VOICE_FOLLOW || !isPlaying || countdown > 0) return@LaunchedEffect
         if (!audioPermission) {
             voiceUnavailable = true
             voiceStatus = "需要麦克风权限，固定 字/分 兜底"
@@ -215,20 +197,33 @@ fun PlaybackScreen(store: LocalStore, scriptId: Long, onExit: () -> Unit) {
             return@LaunchedEffect
         }
         voiceUnavailable = false
-        voiceEngine.setCursor(currentIndex, progress)
-        voiceEngine.startSession()
-        applyVoiceState(voiceEngine.state())
-        if (!speechRecognizer.start()) {
-            voiceUnavailable = true
-            voiceStatus = "语音识别不可用，固定 字/分 兜底"
+        val ctrl = VoiceFollowController(
+            context = context,
+            settings = settings,
+            units = units,
+            initialIndex = currentIndex,
+            onState = { applyVoiceState(it) },
+            onUnavailable = { reason ->
+                voiceUnavailable = true
+                voiceStatus = "$reason，固定 字/分 兜底"
+            },
+            onStatus = { msg -> voiceStatus = msg }
+        )
+        controller = ctrl
+        ctrl.start()
+        try {
+            awaitCancellation()
+        } finally {
+            ctrl.stop()
+            if (controller === ctrl) controller = null
         }
     }
 
-    LaunchedEffect(settings.promptMode, isPlaying, countdown) {
+    LaunchedEffect(settings.promptMode, isPlaying, countdown, controller) {
         if (settings.promptMode != PromptMode.VOICE_FOLLOW || !isPlaying || countdown > 0) return@LaunchedEffect
         while (isPlaying && countdown == 0) {
             delay(250)
-            applyVoiceState(voiceEngine.onTick(System.currentTimeMillis()))
+            controller?.onTick(System.currentTimeMillis())
         }
     }
 
@@ -313,8 +308,8 @@ fun PlaybackScreen(store: LocalStore, scriptId: Long, onExit: () -> Unit) {
                         val position = positionForFraction(fraction, units.size)
                         currentIndex = position.index
                         progress = position.progress
-                        voiceEngine.setCursor(position.index, position.progress)
-                        voiceState = voiceEngine.state()
+                        controller?.setCursor(position.index, position.progress)
+                        controller?.latestState()?.let { voiceState = it }
                     }
                 }
                 val onTogglePlay = { isPlaying = !isPlaying }
@@ -422,9 +417,7 @@ fun PlaybackScreen(store: LocalStore, scriptId: Long, onExit: () -> Unit) {
                 TextButton(onClick = {
                     currentIndex = 0
                     progress = 0f
-                    voiceEngine.setCursor(0, 0f)
-                    voiceEngine.startSession()
-                    voiceState = voiceEngine.state()
+                    controller?.setCursor(0, 0f)
                     isPlaying = false
                     countdownCycle += 1
                     confirmRestart = false

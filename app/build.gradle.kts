@@ -27,6 +27,11 @@ android {
         }
     }
 
+    ndk {
+        // Sherpa-onnx ships arm native libs only; limit to real device ABIs.
+        abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a"))
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -60,4 +65,12 @@ dependencies {
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+
+    // On-device ASR (sherpa-onnx) — streaming + offline models.
+    // Prebuilt static-link-onxruntime AAR from the sherpa-onnx v1.12.9 GitHub release
+    // (sherpa-onnx is not published to Maven Central). Self-contained: onnxruntime is
+    // baked into libsherpa-onnx-jni.so, so no transitive runtime dependency.
+    implementation(files("libs/sherpa-onnx-1.12.9.aar"))
+    // Generic HTTP client for user-configured cloud recognition APIs.
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }

@@ -37,15 +37,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.teleprompter.data.LocalStore
 import com.example.teleprompter.domain.model.AccentColor
+import com.example.teleprompter.domain.model.AsrMode
+import com.example.teleprompter.domain.model.CloudAsrConfig
 import com.example.teleprompter.domain.model.DisplaySettings
 import com.example.teleprompter.domain.model.FontScale
 import com.example.teleprompter.domain.model.PromptMode
 import com.example.teleprompter.domain.model.ThemeMode
+import com.example.teleprompter.asr.LocalModelCatalog
 import com.example.teleprompter.domain.parser.countReadingUnits
 import com.example.teleprompter.domain.playback.calibratedRate
 import com.example.teleprompter.domain.playback.calibrationSample
 import com.example.teleprompter.util.ceilDurationSeconds
 import com.example.teleprompter.util.formatDurationSeconds
+import androidx.compose.material3.OutlinedTextField
 import kotlinx.coroutines.delay
 
 @Composable
@@ -106,6 +110,38 @@ fun PlaybackSettingsScreen(store: LocalStore, scriptId: Long, onBack: () -> Unit
                 color = MaterialTheme.colorScheme.secondary,
                 fontSize = 13.sp
             )
+
+            if (settings.promptMode == PromptMode.VOICE_FOLLOW) {
+                SettingTitle("识别引擎")
+                ChoiceRow(AsrMode.entries.toList(), settings.asrMode, { it.label() }) { update(settings.copy(asrMode = it)) }
+                when (settings.asrMode) {
+                    AsrMode.SYSTEM -> Text(
+                        "使用手机自带语音识别。零下载、可离线，但精度一般，适合快速上手。",
+                        color = MaterialTheme.colorScheme.secondary, fontSize = 13.sp
+                    )
+                    AsrMode.LOCAL -> {
+                        SettingTitle("本地模型")
+                        val modelIds = LocalModelCatalog.entries.map { it.id }
+                        ChoiceRow(modelIds, settings.localModelId, { LocalModelCatalog.get(it).label }) { update(settings.copy(localModelId = it)) }
+                        val lm = LocalModelCatalog.get(settings.localModelId)
+                        Text(lm.note, color = MaterialTheme.colorScheme.secondary, fontSize = 13.sp)
+                        if (lm.bundledAssetDir == null) {
+                            Text(
+                                "首次使用需下载约 ${lm.approxSizeMb}MB（下载后离线可用，建议在 Wi-Fi 下）。",
+                                color = MaterialTheme.colorScheme.secondary, fontSize = 13.sp
+                            )
+                        }
+                    }
+                    AsrMode.CLOUD -> {
+                        SettingTitle("云端识别接口")
+                        CloudConfigEditor(settings.cloudConfig) { update(settings.copy(cloudConfig = it)) }
+                        Text(
+                            "把你自己的云端识别 API 填进来：每 ~1 秒把 16k/16bit 音频按模板发送，再从返回 JSON 中按路径取文本。",
+                            color = MaterialTheme.colorScheme.secondary, fontSize = 13.sp
+                        )
+                    }
+                }
+            }
 
             SettingTitle("滚动速度")
             ChoiceRow(listOf(120, 160, 200, 240, 280, 320, settings.speed).distinct().sorted(), settings.speed, { it.toString() }) { update(settings.copy(speed = it)) }
@@ -236,4 +272,47 @@ private fun ThemeMode.label() = if (this == ThemeMode.DARK) "深色" else "浅�
 private fun PromptMode.label() = when (this) {
     PromptMode.FIXED_WPM -> "固定速度"
     PromptMode.VOICE_FOLLOW -> "实时语音跟随"
+}
+
+private fun AsrMode.label() = when (this) {
+    AsrMode.SYSTEM -> "系统识别"
+    AsrMode.LOCAL -> "本地模型"
+    AsrMode.CLOUD -> "云端API"
+}
+
+@Composable
+private fun CloudConfigEditor(config: CloudAsrConfig, onUpdate: (CloudAsrConfig) -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        OutlinedTextField(
+            value = config.endpoint,
+            onValueChange = { onUpdate(config.copy(endpoint = it)) },
+            label = { Text("接口地址 (endpoint)") },
+            placeholder = { Text("https://your-asr.example.com/recognize") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = config.apiKey,
+            onValueChange = { onUpdate(config.copy(apiKey = it)) },
+            label = { Text("API Key（可选）") },
+            placeholder = { Text("留空则不带 Authorization 头") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = config.resultPath,
+            onValueChange = { onUpdate(config.copy(resultPath = it)) },
+            label = { Text("返回文本 JSON 路径") },
+            placeholder = { Text("如 text 或 result.text") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            "请求体默认：{\"audio\":\"{base64}\",\"sample_rate\":16000,\"format\":\"wav\"}；其中 {base64} 为当前音频块的 Base64。",
+            color = MaterialTheme.colorScheme.secondary, fontSize = 12.sp
+        )
+    }
 }

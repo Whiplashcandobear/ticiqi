@@ -15,6 +15,11 @@ android {
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
+
+        ndk {
+            // Sherpa-onnx ships arm native libs; limit the APK to real device ABIs.
+            abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a"))
+        }
     }
 
     buildTypes {
@@ -25,11 +30,6 @@ android {
                 "proguard-rules.pro"
             )
         }
-    }
-
-    ndk {
-        // Sherpa-onnx ships arm native libs only; limit to real device ABIs.
-        abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a"))
     }
 
     compileOptions {

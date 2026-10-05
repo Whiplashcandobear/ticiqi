@@ -60,6 +60,7 @@ class SherpaOnnxAsrEngine(
         private const val OFFLINE_DECODE_MS = 1200L
         private const val OFFLINE_WINDOW_SAMPLES = SAMPLE_RATE * 5 // keep ~5s of context
         private const val OFFLINE_SLACK_SAMPLES = SAMPLE_RATE // trim headroom
+        private const val SILENT_FRAMES_TO_ALERT = 30 // 0.1s/帧 × 30 = 连续 3 秒纯静音
         private val HOSTS = listOf("https://huggingface.co", "https://hf-mirror.com")
     }
 
@@ -155,14 +156,39 @@ class SherpaOnnxAsrEngine(
         val shortBuf = ShortArray(FRAME_SAMPLES)
         val floatBuf = FloatArray(FRAME_SAMPLES)
         listener?.onStatus("识别中")
+        var silentFrames = 0
+        var micOccupiedNotified = false
         while (running) {
             val read = record.read(shortBuf, 0, FRAME_SAMPLES)
+            if (read < 0) {
+                // 麦克风被系统临时接管时 read 可能返回错误码，稍等重试，避免热循环
+                try { Thread.sleep(50) } catch (_: InterruptedException) { }
+                continue
+            }
             if (read <= 0) continue
             var sumSq = 0.0
+            var maxAbs = 0
             for (i in 0 until read) {
                 val f = shortBuf[i] / 32768.0f
                 floatBuf[i] = f
                 sumSq += f * f
+                val a = if (shortBuf[i] < 0) -shortBuf[i].toInt() else shortBuf[i].toInt()
+                if (a > maxAbs) maxAbs = a
+            }
+            // Android 10+ 采集独占策略：麦克风被其他应用（如相机录像）抢占时，
+            // 系统仍允许本进程"录音"，但喂进来的全是全 0 静音数据。
+            // 真实安静环境的底噪不会是纯 0，连续数秒纯 0 即判定被占用。
+            if (maxAbs == 0) {
+                if (!micOccupiedNotified && ++silentFrames >= SILENT_FRAMES_TO_ALERT) {
+                    micOccupiedNotified = true
+                    listener?.onStatus("麦克风被其他应用占用（如相机正在录像）：关掉相机「录制声音」即可恢复跟随")
+                }
+            } else {
+                silentFrames = 0
+                if (micOccupiedNotified) {
+                    micOccupiedNotified = false
+                    listener?.onStatus("识别中")
+                }
             }
             val rms = Math.sqrt(sumSq / read)
             listener?.onRms((20.0 * Math.log10(rms + 1e-9)).toFloat())

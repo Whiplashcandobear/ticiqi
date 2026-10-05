@@ -31,6 +31,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
+import android.widget.Toast
 import com.example.teleprompter.MainActivity
 import com.example.teleprompter.data.LocalStore
 import com.example.teleprompter.domain.model.AccentColor
@@ -80,6 +81,9 @@ class OverlayService : Service() {
     private var voiceState: VoiceFollowState? = null
     private var voiceUnavailable = false
     private var voiceEngineStatus = ""
+    // 内置录像：悬浮提词 + 语音跟随的同时用前摄录像（同 UID 允许并发采集麦克风）
+    private var recorder: OverlayRecorder? = null
+    private var recordButton: TextView? = null
     // 连续滚动跟随：用户手动滚动后暂停自动跟随一段时间
     private var lastUserScrollAt = 0L
     private var lastScrollTarget = -1
@@ -133,6 +137,8 @@ class OverlayService : Service() {
         playbackJob?.cancel()
         controller?.stop()
         controller = null
+        recorder?.releaseNow()
+        recorder = null
         savePlaybackPosition()
         overlayRoot?.let { root ->
             runCatching { windowManager.removeViewImmediate(root) }
@@ -234,6 +240,8 @@ class OverlayService : Service() {
         controls.addView(actionButton("快10") { changeSpeed(+10) })
         controls.addView(actionButton("字＋") { changeFont(true) })
         controls.addView(actionButton("色") { toggleTheme() })
+        recordButton = actionButton("录像") { toggleRecording() }
+        controls.addView(recordButton)
         root.addView(controls, LinearLayout.LayoutParams(-1, dp(42)))
 
         statusText = label("", 11f, secondaryColor()).apply { gravity = Gravity.CENTER }
@@ -471,6 +479,50 @@ class OverlayService : Service() {
         renderTranscript()
     }
 
+    private fun toggleRecording() {
+        val rec = recorder
+        if (rec?.isRecording == true) {
+            rec.stop { uri ->
+                scope.launch {
+                    if (uri != null) {
+                        Toast.makeText(this@OverlayService, "录像已保存到 相册 › Movies › ticiqi", Toast.LENGTH_LONG).show()
+                    }
+                    updateRecordButton()
+                    updateStatus()
+                }
+            }
+            return
+        }
+        if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            voiceEngineStatus = "未授权相机，请到系统设置开启后重试录像"
+            updateStatus()
+            return
+        }
+        val target = rec ?: OverlayRecorder(applicationContext) { msg ->
+            scope.launch {
+                voiceEngineStatus = "录像：$msg"
+                updateRecordButton()
+                updateStatus()
+            }
+        }.also { recorder = it }
+        // 先刷新前台服务类型（录像需要 camera 类型），再开相机
+        startForegroundCompat()
+        target.start {
+            scope.launch {
+                updateRecordButton()
+                updateStatus()
+            }
+        }
+    }
+
+    private fun updateRecordButton() {
+        val recording = recorder?.isRecording == true
+        recordButton?.text = if (recording) "停止" else "录像"
+        recordButton?.setTextColor(
+            if (recording) Color.rgb(255, 107, 107) else textColor()
+        )
+    }
+
     private fun changeSpeed(delta: Int) {
         val next = stepRate(settings.speed, delta)
         if (next != settings.speed) {
@@ -494,6 +546,11 @@ class OverlayService : Service() {
     }
 
     private fun updateStatus() {
+        val rec = recorder
+        val recIndicator = if (rec?.isRecording == true) {
+            val s = rec.elapsedSeconds()
+            " ● 录像中 ${s / 60}:${(s % 60).toString().padStart(2, '0')}"
+        } else ""
         val mode = when {
             settings.promptMode == PromptMode.FIXED_WPM -> "固定 ${settings.speed} 字/分"
             voiceUnavailable || voiceState?.isFallbackToWpm == true -> "固定 字/分 兜底"
@@ -501,15 +558,18 @@ class OverlayService : Service() {
         }
         // 诊断优先级：麦克风被占用 > 听到但未匹配 > 引擎状态文案（模型加载/下载等）。
         val heard = voiceState?.lastHeard.orEmpty()
+        val occupied = voiceEngineStatus.startsWith("麦克风被")
         val extra = when {
             settings.promptMode != PromptMode.VOICE_FOLLOW -> ""
-            voiceEngineStatus.startsWith("麦克风被") -> " · $voiceEngineStatus"
+            occupied && rec?.isRecording == true -> " · 本机不支持边录边识别：跟随暂停，录像正常"
+            occupied -> " · $voiceEngineStatus"
             voiceState?.lastMatched == true -> " · 已跟随"
             heard.isNotBlank() -> " · 听到「${heard}」未匹配"
             voiceEngineStatus.isNotBlank() -> " · $voiceEngineStatus"
             else -> ""
         }
-        statusText?.text = if (units.isEmpty()) "暂无台本" else "第 ${currentIndex + 1} / ${units.size} 句 · $mode$extra"
+        statusText?.text =
+            if (units.isEmpty()) "暂无台本" else "第 ${currentIndex + 1} / ${units.size} 句 · $mode$extra$recIndicator"
     }
 
     private fun applyVoiceState(next: VoiceFollowState?) {
@@ -608,10 +668,13 @@ class OverlayService : Service() {
             )
             .build()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            val type = ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or
-                if (settings.promptMode == PromptMode.VOICE_FOLLOW &&
-                    checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-                ) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0
+            var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+            if (settings.promptMode == PromptMode.VOICE_FOLLOW &&
+                checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            ) type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            if (recorder?.isRecording == true &&
+                checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+            ) type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
             startForeground(NOTIFICATION_ID, notification, type)
         } else {
             startForeground(NOTIFICATION_ID, notification)

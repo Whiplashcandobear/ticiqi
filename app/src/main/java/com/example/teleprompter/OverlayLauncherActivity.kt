@@ -10,7 +10,6 @@ import android.os.Bundle
 import android.provider.Settings
 import android.widget.Toast
 import com.example.teleprompter.data.LocalStore
-import com.example.teleprompter.domain.model.PromptMode
 import com.example.teleprompter.overlay.OverlayService
 
 /**
@@ -66,17 +65,20 @@ class OverlayLauncherActivity : Activity() {
             return
         }
 
-        val settings = LocalStore(this).loadSettings()
-        if (settings.promptMode == PromptMode.VOICE_FOLLOW &&
-            checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED
-        ) {
-            if (!requestedMic) {
-                requestedMic = true
-                requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), MIC_REQUEST_CODE)
-                return
-            }
-            // 拒绝了也继续：悬浮窗里会显示"未授权麦克风"并自动兜底固定速度。
+        // 一次性把麦克风（语音跟随）和相机（悬浮窗内置录像）权限都请求掉
+        val missing = mutableListOf<String>()
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            missing.add(Manifest.permission.RECORD_AUDIO)
         }
+        if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            missing.add(Manifest.permission.CAMERA)
+        }
+        if (missing.isNotEmpty() && !requestedMic) {
+            requestedMic = true
+            requestPermissions(missing.toTypedArray(), MIC_REQUEST_CODE)
+            return
+        }
+        // 拒绝了也继续：悬浮窗里会显示"未授权麦克风/相机"并给出对应提示。
 
         val document = LocalStore(this).loadScripts().firstOrNull { it.id == scriptId }
         if (document == null) {

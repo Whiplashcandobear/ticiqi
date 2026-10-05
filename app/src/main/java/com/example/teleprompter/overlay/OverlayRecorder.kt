@@ -48,6 +48,7 @@ class OverlayRecorder(
     private var startedAt = 0L
     private var pendingStart = false
     private var startCallback: (() -> Unit)? = null
+    private var opening = false // 防止相机在打开过程中被二次 openCamera（报错代码 3/2）
 
     @Volatile
     var isRecording = false
@@ -183,32 +184,39 @@ class OverlayRecorder(
     }
 
     private fun openCamera() {
+        if (camera != null || opening) return
         val cm = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
         val cameraId = pickFrontCamera(cm)
         if (cameraId == null) {
             onError("没有找到可用摄像头")
             return
         }
+        opening = true
         try {
             cm.openCamera(cameraId, object : CameraDevice.StateCallback() {
                 override fun onOpened(device: CameraDevice) {
+                    opening = false
                     camera = device
                     rebuildSession()
                 }
 
                 override fun onDisconnected(device: CameraDevice) {
+                    opening = false
                     device.close()
                     if (camera === device) camera = null
                 }
 
                 override fun onError(device: CameraDevice, error: Int) {
+                    opening = false
                     onError("打开相机失败（代码 $error）")
                     releaseCamera()
                 }
             }, null)
         } catch (e: SecurityException) {
+            opening = false
             onError("没有相机权限")
         } catch (e: Throwable) {
+            opening = false
             onError("打开相机失败：${e.message}")
         }
     }
@@ -277,6 +285,7 @@ class OverlayRecorder(
     }
 
     private fun releaseCamera() {
+        opening = false
         runCatching { session?.close() }
         runCatching { camera?.close() }
         session = null

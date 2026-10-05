@@ -87,7 +87,9 @@ class OverlayService : Service() {
     // 内置录像：悬浮提词 + 语音跟随的同时用前摄录像（同 UID 允许并发采集麦克风）
     private var recorder: OverlayRecorder? = null
     private var recordButton: TextView? = null
-    // 全屏取景预览（飓风式）：录像时悬浮窗切全屏，前摄预览铺底，提词文字浮在上层
+    // 全屏取景预览（飓风式）：独立的全屏窗口铺在提词窗口之下，
+    // 提词窗口保持原大小/位置浮在上层，缩放/拖动互不影响
+    private var previewWindow: FrameLayout? = null
     private var previewView: TextureView? = null
     private var previewMode = false
     private var previewAttached = false
@@ -148,6 +150,7 @@ class OverlayService : Service() {
         controller = null
         recorder?.releaseNow()
         recorder = null
+        removePreviewWindow()
         savePlaybackPosition()
         overlayRoot?.let { root ->
             runCatching { windowManager.removeViewImmediate(root) }
@@ -263,28 +266,6 @@ class OverlayService : Service() {
         root.addView(statusText, LinearLayout.LayoutParams(-1, dp(22)))
 
         frame.addView(root, FrameLayout.LayoutParams(-1, -1))
-
-        // 全屏预览层：位于 root 之下，录像时可见（前置摄像头镜像自拍视角）
-        val preview = TextureView(this).apply {
-            visibility = View.GONE
-            surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
-                    attachPreviewIfReady()
-                }
-
-                override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) = Unit
-
-                override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
-                    recorder?.detachPreview()
-                    previewAttached = false
-                    return true
-                }
-
-                override fun onSurfaceTextureUpdated(st: SurfaceTexture) = Unit
-            }
-        }
-        frame.addView(preview, 0, FrameLayout.LayoutParams(-1, -1))
-        previewView = preview
 
         // 右下角缩放手柄：按住拖动调整悬浮窗大小
         val grip = TextView(this).apply {
@@ -576,46 +557,85 @@ class OverlayService : Service() {
         rec.attachPreview(Surface(tv.surfaceTexture))
     }
 
-    /** 悬浮窗切全屏：前摄预览铺底，提词与控件浮在上层。 */
+    /** 进入取景预览：创建独立全屏预览窗口铺底，提词窗口浮在上层保持原样。 */
     private fun enterPreviewMode() {
         previewMode = true
-        previewView?.visibility = View.VISIBLE
-        previewView?.scaleX = -1f // 前置摄像头镜像，符合自拍直觉
-        val params = overlayParams ?: return
-        params.width = WindowManager.LayoutParams.MATCH_PARENT
-        params.height = WindowManager.LayoutParams.MATCH_PARENT
-        params.x = 0
-        params.y = 0
-        overlayRoot?.let { windowManager.updateViewLayout(it, params) }
-        // 半透明压暗 + 文字面板，保证任何背景下可读
-        overlayRoot?.background = roundedBackground(Color.argb(70, 0, 0, 0), 18)
-        transcriptScroll?.background = roundedBackground(Color.argb(150, 8, 12, 20), 14)
-        statusText?.background = roundedBackground(Color.argb(150, 8, 12, 20), 14)
         collapseButton?.visibility = View.VISIBLE
+        // 提词面板改半透明，身后的取景画面能透出来（对标飓风效果）
+        overlayRoot?.background = roundedBackground(Color.argb(110, 10, 14, 22), 18)
+        showPreviewWindow()
+        bringTranscriptToFront()
+        attachPreviewIfReady()
         updateRecordButton()
         updateStatus()
     }
 
-    /** 退出全屏预览：停录、释放相机、恢复小窗。 */
+    /** 退出取景预览：停录、释放相机、移除预览窗口。 */
     private fun exitPreviewMode() {
         if (recorder?.isRecording == true) stopRecording()
         previewMode = false
         previewAttached = false
         pendingRecordStart = false
-        previewView?.visibility = View.GONE
-        recorder?.detachPreview()
-        val params = overlayParams ?: return
-        params.width = dp(settings.overlayWidthDp.coerceIn(MIN_OVERLAY_SIZE_DP, 720))
-        params.height = dp(settings.overlayHeightDp.coerceIn(MIN_OVERLAY_SIZE_DP, 720))
-        params.x = dp(16)
-        params.y = dp(120)
-        overlayRoot?.let { windowManager.updateViewLayout(it, params) }
-        overlayRoot?.background = roundedBackground(surfaceColor(), 18)
-        transcriptScroll?.background = null
-        statusText?.background = null
         collapseButton?.visibility = View.GONE
+        overlayRoot?.background = roundedBackground(surfaceColor(), 18)
+        recorder?.detachPreview()
+        removePreviewWindow()
         updateRecordButton()
         updateStatus()
+    }
+
+    /** 全屏预览窗口：不可点击（触摸穿透），始终铺满整屏。 */
+    private fun showPreviewWindow() {
+        if (previewWindow != null) return
+        val container = FrameLayout(this)
+        val tv = TextureView(this).apply {
+            scaleX = -1f // 前置摄像头镜像，符合自拍直觉
+            surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
+                    attachPreviewIfReady()
+                }
+
+                override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) = Unit
+
+                override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
+                    recorder?.detachPreview()
+                    previewAttached = false
+                    return true
+                }
+
+                override fun onSurfaceTextureUpdated(st: SurfaceTexture) = Unit
+            }
+        }
+        container.addView(tv, FrameLayout.LayoutParams(-1, -1))
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+            PixelFormat.TRANSLUCENT
+        )
+        windowManager.addView(container, params)
+        previewWindow = container
+        previewView = tv
+    }
+
+    private fun removePreviewWindow() {
+        val window = previewWindow ?: return
+        previewWindow = null
+        previewView = null
+        runCatching { windowManager.removeViewImmediate(window) }
+    }
+
+    /** 预览窗口后加入会盖住提词窗口，把提词窗口重新提到最上层。 */
+    private fun bringTranscriptToFront() {
+        val frame = overlayRoot ?: return
+        val params = overlayParams ?: return
+        runCatching {
+            windowManager.removeViewImmediate(frame)
+            windowManager.addView(frame, params)
+        }
     }
 
     private fun updateRecordButton() {

@@ -2,6 +2,7 @@ package com.example.teleprompter.overlay
 
 import android.content.ContentValues
 import android.content.Context
+import android.graphics.SurfaceTexture
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
@@ -50,6 +51,10 @@ class OverlayRecorder(
     private var startCallback: (() -> Unit)? = null
     private var opening = false // 防止相机在打开过程中被二次 openCamera（报错代码 3/2）
 
+    /** 预览 buffer 的实际尺寸（竖屏化，w<h）。OverlayService 据此做 CENTER_CROP 变换。 */
+    var previewSize: Size = Size(1080, 1920)
+        private set
+
     @Volatile
     var isRecording = false
         private set
@@ -57,9 +62,16 @@ class OverlayRecorder(
     fun elapsedSeconds(): Int =
         if (!isRecording) 0 else ((System.currentTimeMillis() - startedAt) / 1000).toInt()
 
-    /** 附加预览 Surface（主线程调用）：没有相机则打开相机，有则重建会话。 */
-    fun attachPreview(surface: Surface) {
-        previewSurface = surface
+    /**
+     * 附加预览 SurfaceTexture（主线程调用）：没有相机则打开相机，有则重建会话。
+     * 显式把 buffer 设为受支持的 16:9 尺寸（竖屏化）——若放任 TextureView 默认的
+     * 全屏比例（如 1080x2340），HAL 会把 16:9/4:3 画面硬拉伸成全屏导致人脸变形。
+     */
+    fun attachPreview(st: SurfaceTexture) {
+        val size = pickPreviewSize()
+        runCatching { st.setDefaultBufferSize(size.width, size.height) }
+        previewSize = size
+        previewSurface = Surface(st)
         if (camera == null) openCamera() else rebuildSession()
     }
 
@@ -310,6 +322,25 @@ class OverlayRecorder(
         return pool.minByOrNull {
             abs(it.width.toFloat() / it.height - 16f / 9f) * 10000 + it.width
         } ?: pool.first()
+    }
+
+    /** 预览尺寸：≤1080p 中最接近 16:9 的受支持尺寸，转成竖屏（w<h）匹配竖屏取景。 */
+    private fun pickPreviewSize(): Size {
+        val cm = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+        val cameraId = pickFrontCamera(cm) ?: return Size(1080, 1920)
+        val sizes = runCatching {
+            cm.getCameraCharacteristics(cameraId)
+                .get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+                ?.getOutputSizes(SurfaceTexture::class.java)
+                ?.toList()
+                .orEmpty()
+        }.getOrDefault(emptyList())
+        if (sizes.isEmpty()) return Size(1080, 1920)
+        val pool = sizes.filter { it.width <= 1920 && it.height <= 1080 }.ifEmpty { sizes }
+        val best = pool.minByOrNull {
+            abs(it.width.toFloat() / it.height - 16f / 9f) * 10000 + it.width
+        } ?: pool.first()
+        return if (best.width > best.height) Size(best.height, best.width) else best
     }
 
     private fun createOutput(): Uri? = try {

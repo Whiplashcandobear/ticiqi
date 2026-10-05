@@ -25,7 +25,6 @@ import android.text.style.ForegroundColorSpan
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
-import android.view.Surface
 import android.view.TextureView
 import android.view.View
 import android.view.WindowManager
@@ -560,7 +559,7 @@ class OverlayService : Service() {
             }
         }
         previewAttached = true
-        rec.attachPreview(Surface(tv.surfaceTexture))
+        rec.attachPreview(tv.surfaceTexture)
     }
 
     /** 进入取景预览：创建独立全屏预览窗口铺底，提词窗口浮在上层保持原样。 */
@@ -607,12 +606,12 @@ class OverlayService : Service() {
         val tv = TextureView(this).apply {
             surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                 override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
-                    applyPreviewCrop(st)
+                    applyPreviewCrop()
                     attachPreviewIfReady()
                 }
 
                 override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) {
-                    applyPreviewCrop(st)
+                    applyPreviewCrop()
                 }
 
                 override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
@@ -622,8 +621,8 @@ class OverlayService : Service() {
                 }
 
                 override fun onSurfaceTextureUpdated(st: SurfaceTexture) {
-                    // 首帧到达后 buffer 尺寸才最终确定，再校一次裁剪
-                    applyPreviewCrop(st)
+                    // 首帧到达后预览尺寸已就绪，再校一次裁剪
+                    applyPreviewCrop()
                 }
             }
         }
@@ -642,16 +641,15 @@ class OverlayService : Service() {
     }
 
     /**
-     * 预览画面 CENTER_CROP：相机 buffer（多为 4:3）等比放大到铺满全屏后居中裁剪，
-     * 避免 4:3 画面被硬拉伸成 9:19.5 导致人脸变形。水平镜像并入矩阵（前摄自拍视角）。
+     * 预览画面 CENTER_CROP：预览 buffer（16:9 竖屏，由 OverlayRecorder 显式设定）
+     * 等比放大铺满全屏后居中裁剪，既不拉伸变形也不留黑边。水平镜像并入矩阵（前摄自拍视角）。
      */
-    private fun applyPreviewCrop(st: SurfaceTexture) {
+    private fun applyPreviewCrop() {
         val tv = previewView ?: return
+        val bs = recorder?.previewSize ?: return
         val vw = tv.width
         val vh = tv.height
-        if (vw == 0 || vh == 0) return
-        val bs = st.defaultBufferSize
-        if (bs.width == 0 || bs.height == 0) return
+        if (vw == 0 || vh == 0 || bs.width == 0 || bs.height == 0) return
         if (bs.width == lastCropBufferW && bs.height == lastCropBufferH && vw == lastCropViewW && vh == lastCropViewH) return
         lastCropBufferW = bs.width
         lastCropBufferH = bs.height

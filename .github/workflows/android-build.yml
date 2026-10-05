@@ -4,13 +4,13 @@ on:
   push:
     branches:
       - main
-      - 'codex/**'
-  pull_request:
-    branches:
-      - main
 
 permissions:
   contents: read
+  actions: write
+
+env:
+  ANDROID_HOME: /usr/local/lib/android/sdk
 
 jobs:
   assemble:
@@ -28,5 +28,19 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Install Android SDK packages
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
       - name: Build debug APK
         run: ./gradlew assembleDebug --no-daemon --console=plain
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk

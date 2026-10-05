@@ -659,15 +659,15 @@ class OverlayService : Service() {
         val dx = (vw - bs.width * scale) / 2f
         val dy = (vh - bs.height * scale) / 2f
         // 负的 x 缩放 = 水平镜像（前摄自拍视角）
-        tv.setTransform(
-            Matrix(
-                floatArrayOf(
-                    -scale, 0f, dx,
-                    0f, scale, dy,
-                    0f, 0f, 1f
-                )
+        val matrix = Matrix()
+        matrix.setValues(
+            floatArrayOf(
+                -scale, 0f, dx,
+                0f, scale, dy,
+                0f, 0f, 1f
             )
         )
+        tv.setTransform(matrix)
     }
 
     private fun removePreviewWindow() {

@@ -353,6 +353,10 @@ class OverlayService : Service() {
         updateCurrentLine()
         updateStatus()
         updateSeekBar()
+        scrollToCurrentLine()
+    }
+
+    private fun scrollToCurrentLine() {
         transcriptScroll?.post {
             val current = lineViews.getOrNull(currentIndex) ?: return@post
             transcriptScroll?.smoothScrollTo(0, max(0, current.top - (transcriptScroll?.height ?: 0) / 3))
@@ -459,11 +463,26 @@ class OverlayService : Service() {
         next ?: return
         voiceState = next
         if (!next.isFallbackToWpm) {
-            currentIndex = next.currentUnitIndex.coerceIn(0, (units.size - 1).coerceAtLeast(0))
+            val newUnit = next.currentUnitIndex.coerceIn(0, (units.size - 1).coerceAtLeast(0))
+            val moved = newUnit != currentIndex
+            currentIndex = newUnit
             progress = next.characterProgress.coerceIn(0f, 1f)
-            lineViews.getOrNull(currentIndex)?.text = currentSpannable()
+            if (moved) {
+                // 前进或回头都整行刷新样式，并滚动到当前句（回头重读时会向上滚）
+                refreshLineStyles()
+                scrollToCurrentLine()
+            } else {
+                lineViews.getOrNull(currentIndex)?.text = currentSpannable()
+            }
         }
-        updateCurrentLine()
+        updateStatus()
+        updateSeekBar()
+    }
+
+    private fun refreshLineStyles() {
+        units.forEachIndexed { index, unit ->
+            lineViews.getOrNull(index)?.let { updateLine(index, it, unit) }
+        }
     }
 
     private fun startVoiceFollowIfNeeded() {

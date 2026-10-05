@@ -103,7 +103,7 @@ fun PlaybackSettingsScreen(store: LocalStore, scriptId: Long, onBack: () -> Unit
             ChoiceRow(PromptMode.entries.toList(), settings.promptMode, { it.label() }) { update(settings.copy(promptMode = it)) }
             Text(
                 if (settings.promptMode == PromptMode.VOICE_FOLLOW) {
-                    "实时语音跟随：按字匹配你的中文语音；识别中断约 2 秒会自动回到固定速度。"
+                    "实时语音跟随：说到哪滚到哪；回头重读会自动滚回去，说与台本无关的话会原地等待；识别引擎不可用时才回固定速度。"
                 } else {
                     "固定速度：按照设定字/分播放，适合环境嘈杂或不使用麦克风时。"
                 },

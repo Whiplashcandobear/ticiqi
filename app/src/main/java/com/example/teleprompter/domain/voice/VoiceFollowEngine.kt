@@ -5,52 +5,52 @@ import com.example.teleprompter.domain.model.SpeechUnit
 data class VoiceFollowState(
     val currentUnitIndex: Int,
     val characterProgress: Float,
+    /** 引擎侧不再主动兜底（见类注释）；此字段保留供 UI 兼容，恒为 false。 */
     val isFallbackToWpm: Boolean,
     val hasStableMatch: Boolean,
     val lastRecognitionAtMillis: Long?
 )
 
 /**
- * Chinese-aware voice-follow state machine. It is deliberately independent of
- * Android so partial-result behavior can be tested deterministically.
+ * 中文语音跟随状态机：识别文本 → [ScriptAligner] 整句匹配 → 光标（句号 + 句内进度）。
  *
- * Replaces the old English-token [SpeechTextMatcher] with [TeleprompterAlignment],
- * which matches the recognized text to the script at the character level. That is
- * what makes 语音跟随 work for Chinese: the cursor now advances by how many
- * characters were actually spoken, instead of by English words (which are zero
- * for Chinese).
+ * 行为设计（相对旧版的两个关键变化）：
+ *  1. **乱说话不动**：识别文本与台本匹配得分低于阈值时（说了无关的话），光标原地不动，
+ *     也不会像旧版那样被噪声一点点"蹭"着往前走；
+ *  2. **可以回头**：用户回头重读前面已滚过的内容时，匹配点在光标之前，光标自动滚回去。
+ *
+ * 兜底策略：光标兜底（回固定字/分）只发生在"识别引擎整个不可用"时（由上层
+ * voiceUnavailable 控制）；引擎活着但暂时没匹配到（停顿/跑题）就原地等待，
+ * 不会自作主张按固定速度往下滚——否则用户说完一段插话回来，屏幕已经滚远了。
+ *
+ * 纯 Kotlin、无 Android 依赖，可单元测试。
  */
 class VoiceFollowEngine(
     private val units: List<SpeechUnit>,
     initialUnitIndex: Int = 0,
-    private val fallbackAfterMillis: Long = 2_000L,
-    /** 首次匹配前的宽限期：本地模型加载/下载、用户开口前的静默都不算"识别中断"。 */
-    private val firstMatchGraceMillis: Long = 15_000L,
     startAtMillis: Long = System.currentTimeMillis()
 ) {
-    private val alignment: TeleprompterAlignment
+    private val aligner: ScriptAligner
     private val unitCleanStart: IntArray
     private val unitCleanLen: IntArray
     private val totalClean: Int
 
     private val lastUnitIndex = (units.size - 1).coerceAtLeast(0)
+    /** 对齐器的当前光标（clean 字符索引，指向"下一个未说到的字"）。 */
+    private var currentClean: Int
     private var currentIndex = initialUnitIndex.coerceIn(0, lastUnitIndex)
     private var characterProgress = 0f
     private var lastValidRecognitionAt = startAtMillis
-    private var fallbackToWpm = false
     private var hasStableMatch = false
-    private var recoveryStreak = 0
 
     init {
         val content = units.joinToString(" ") { it.rawText }
-        alignment = TeleprompterAlignment(content)
+        aligner = ScriptAligner(content)
         val starts = IntArray(units.size)
         val lengths = IntArray(units.size)
         var cursor = 0
         for (k in units.indices) {
-            val cleanCount = units[k].rawText.count { ch ->
-                TeleprompterAlignment.isCleanChar(ch)
-            }
+            val cleanCount = units[k].rawText.count { ScriptAligner.isCleanChar(it) }
             starts[k] = cursor
             lengths[k] = cleanCount
             cursor += cleanCount
@@ -58,68 +58,65 @@ class VoiceFollowEngine(
         unitCleanStart = starts
         unitCleanLen = lengths
         totalClean = cursor
+        currentClean = unitCleanStart.getOrElse(currentIndex) { 0 } +
+            (characterProgress * unitCleanLen.getOrElse(currentIndex) { 0 }).toInt()
     }
 
     fun startSession(nowMillis: Long = System.currentTimeMillis()) {
         lastValidRecognitionAt = nowMillis
-        fallbackToWpm = false
         hasStableMatch = false
-        recoveryStreak = 0
-        seekAlignmentToCursor()
+        seekTo(currentIndex, characterProgress)
     }
 
+    /** 用户手动拖动进度条 / 重新开始时调用。 */
     fun setCursor(unitIndex: Int, progress: Float = 0f) {
-        currentIndex = unitIndex.coerceIn(0, lastUnitIndex)
-        characterProgress = progress.coerceIn(0f, 1f)
-        seekAlignmentToCursor()
+        seekTo(unitIndex, progress)
     }
 
     fun state(nowMillis: Long = System.currentTimeMillis()): VoiceFollowState = snapshot(nowMillis)
 
     fun onRecognition(text: String, nowMillis: Long, isFinal: Boolean = false): VoiceFollowState {
-        val res = alignment.consumeTranscript(text, isFinal)
-        if (res.cleanIndex < 0) return onTick(nowMillis)
-
-        val (unitIndex, fraction) = resolveUnit(res.cleanIndex)
-        // Never move the cursor backwards; only advance or hold.
-        if (unitIndex >= currentIndex) {
-            currentIndex = unitIndex
-            characterProgress = fraction
+        val match = aligner.match(text, currentClean)
+        if (match == null) {
+            // 与台本无关的话（乱说/寒暄/短暂跑题）：光标原地不动。
+            return snapshot(nowMillis)
         }
+        currentClean = match.endClean.coerceIn(0, totalClean)
+        val (unitIndex, fraction) = resolveUnit(currentClean, boundaryIsEnd = true)
+        currentIndex = unitIndex
+        characterProgress = fraction
         lastValidRecognitionAt = nowMillis
         hasStableMatch = true
-        fallbackToWpm = false
-        recoveryStreak = 0
         return snapshot(nowMillis)
     }
 
-    fun onTick(nowMillis: Long): VoiceFollowState {
-        val threshold = if (hasStableMatch) fallbackAfterMillis else firstMatchGraceMillis
-        if (nowMillis - lastValidRecognitionAt >= threshold) {
-            fallbackToWpm = true
-            recoveryStreak = 0
-        }
-        return snapshot(nowMillis)
+    fun onTick(nowMillis: Long): VoiceFollowState = snapshot(nowMillis)
+
+    private fun seekTo(unitIndex: Int, progress: Float) {
+        currentIndex = unitIndex.coerceIn(0, lastUnitIndex)
+        characterProgress = progress.coerceIn(0f, 1f)
+        currentClean = (unitCleanStart.getOrElse(currentIndex) { 0 } +
+            (characterProgress * unitCleanLen.getOrElse(currentIndex) { 0 }).toInt()
+        ).coerceIn(0, totalClean)
     }
 
-    private fun seekAlignmentToCursor() {
-        val start = unitCleanStart.getOrElse(currentIndex) { 0 }
-        val len = unitCleanLen.getOrElse(currentIndex) { 0 }
-        val raw = start + (characterProgress * len).toInt()
-        alignment.setCurrentRawIndex(raw)
-    }
-
-    private fun resolveUnit(cleanIndex: Int): Pair<Int, Float> {
+    /**
+     * clean 索引 → (句索引, 句内进度)。
+     * [boundaryIsEnd]=true 时，恰好落在句边界上视为"上一句已读完"（进度 1.0），
+     * 用于语音匹配——用户刚重读完那一句；拖动进度条用 false（视为下一句开头）。
+     */
+    private fun resolveUnit(cleanIndex: Int, boundaryIsEnd: Boolean): Pair<Int, Float> {
         if (units.isEmpty()) return 0 to 0f
-        val safe = cleanIndex.coerceIn(0, totalClean.coerceAtLeast(0))
+        val safe = cleanIndex.coerceIn(0, totalClean)
         for (k in units.indices) {
             val start = unitCleanStart[k]
             val len = unitCleanLen[k]
+            if (len <= 0) continue
             if (safe < start + len) {
-                val fraction = if (len > 0) {
-                    ((safe - start + 1).toFloat() / len).coerceIn(0f, 1f)
-                } else 0f
-                return k to fraction
+                return k to ((safe - start).toFloat() / len).coerceIn(0f, 1f)
+            }
+            if (safe == start + len && boundaryIsEnd) {
+                return k to 1f
             }
         }
         return units.lastIndex to 1f
@@ -128,7 +125,7 @@ class VoiceFollowEngine(
     private fun snapshot(nowMillis: Long): VoiceFollowState = VoiceFollowState(
         currentUnitIndex = currentIndex,
         characterProgress = characterProgress,
-        isFallbackToWpm = fallbackToWpm,
+        isFallbackToWpm = false,
         hasStableMatch = hasStableMatch,
         lastRecognitionAtMillis = if (hasStableMatch) lastValidRecognitionAt else null
     )

@@ -8,74 +8,89 @@ import org.junit.Test
 
 class VoiceFollowEngineTest {
     private val units = listOf(
-        SpeechUnit("Good morning, everyone.", 3, 0),
-        SpeechUnit("Today, I'd like to invite you to imagine a garden.", 9, 0),
-        SpeechUnit("In this garden, every flower is different.", 7, 0)
+        SpeechUnit("大家好，欢迎来到今天的分享。", 12, 0),
+        SpeechUnit("今天我想和大家聊聊时间管理。", 13, 1),
+        SpeechUnit("首先我们要明白，时间是最公平的资源。", 16, 2)
     )
 
     @Test
-    fun `partial result advances within current sentence`() {
+    fun `matched speech advances the cursor within the sentence`() {
         val engine = VoiceFollowEngine(units, startAtMillis = 0L)
 
-        val state = engine.onRecognition("Good morning", 300L)
+        val state = engine.onRecognition("大家好欢迎来到今天", 300L)
 
         assertEquals(0, state.currentUnitIndex)
         assertTrue(state.characterProgress > 0f)
+        assertTrue(state.hasStableMatch)
         assertFalse(state.isFallbackToWpm)
     }
 
     @Test
-    fun `spoken next sentence advances the cursor`() {
+    fun `reading the next sentence advances to it`() {
         val engine = VoiceFollowEngine(units, startAtMillis = 0L)
+        engine.onRecognition("大家好欢迎来到今天的分享", 300L)
 
-        val state = engine.onRecognition(
-            "Good morning everyone Today I'd like to invite you",
-            500L
-        )
+        val state = engine.onRecognition("今天我想和大家聊聊时间管理", 400L)
 
         assertEquals(1, state.currentUnitIndex)
-        assertTrue(state.characterProgress > 0f)
     }
 
     @Test
-    fun `silence before first match stays in grace period then falls back`() {
+    fun `unrelated speech does not move the cursor`() {
         val engine = VoiceFollowEngine(units, startAtMillis = 0L)
+        engine.onRecognition("大家好欢迎来到今天的分享", 300L)
 
-        // 模型加载/开口前的静默（这里模拟 2.1s）不应立刻兜底
-        assertFalse(engine.onTick(2_100L).isFallbackToWpm)
-        // 超过首次匹配宽限期（默认 15s）才兜底
-        assertTrue(engine.onTick(15_100L).isFallbackToWpm)
+        val state = engine.onRecognition("今天天气不错我们去吃火锅吧", 400L)
+
+        assertEquals(0, state.currentUnitIndex)
+        assertFalse(state.hasStableMatch)
     }
 
     @Test
-    fun `after first match two second silence falls back to fixed wpm`() {
+    fun `re-reading an earlier sentence scrolls the cursor back`() {
         val engine = VoiceFollowEngine(units, startAtMillis = 0L)
-        engine.onRecognition("Good morning", 300L)
+        engine.onRecognition("大家好欢迎来到今天的分享", 300L)
+        engine.onRecognition("今天我想和大家聊聊时间管理", 400L)
+        assertEquals(1, engine.state().currentUnitIndex)
 
-        val state = engine.onTick(2_500L)
+        val state = engine.onRecognition("大家好欢迎来到今天的分享", 500L)
 
-        assertTrue(state.isFallbackToWpm)
+        assertEquals(0, state.currentUnitIndex)
+        assertEquals(1f, state.characterProgress)
     }
 
     @Test
-    fun `recognition recovery returns to voice follow`() {
+    fun `silence keeps the cursor in place and never falls back`() {
         val engine = VoiceFollowEngine(units, startAtMillis = 0L)
-        engine.onTick(15_100L) // 先进入兜底
+        engine.onRecognition("大家好欢迎来到今天", 300L)
 
-        val state = engine.onRecognition("Good morning everyone", 15_200L)
+        val state = engine.onTick(60_000L)
 
+        // 引擎活着但没识别到（停顿/跑题）：原地等待，不自动回固定速度
+        assertEquals(0, state.currentUnitIndex)
         assertFalse(state.isFallbackToWpm)
     }
 
     @Test
-    fun `empty or unmatched recognition does not move the cursor`() {
+    fun `empty or too short recognition is ignored`() {
         val engine = VoiceFollowEngine(units, startAtMillis = 0L)
-        engine.onRecognition("Good morning everyone", 200L)
+        engine.onRecognition("大家好欢迎来到今天", 300L)
+        val before = engine.state()
 
         val empty = engine.onRecognition("", 400L)
-        val unmatched = engine.onRecognition("zzz", 600L)
+        val short = engine.onRecognition("你好", 500L)
 
-        assertEquals(0, empty.currentUnitIndex)
-        assertEquals(0, unmatched.currentUnitIndex)
+        assertEquals(before.currentUnitIndex, empty.currentUnitIndex)
+        assertEquals(before.currentUnitIndex, short.currentUnitIndex)
+    }
+
+    @Test
+    fun `manual seek moves the matching window`() {
+        val engine = VoiceFollowEngine(units, startAtMillis = 0L)
+        engine.setCursor(2, 0f)
+
+        val state = engine.onRecognition("首先我们要明白时间是最公平的资源", 300L)
+
+        assertEquals(2, state.currentUnitIndex)
     }
 }

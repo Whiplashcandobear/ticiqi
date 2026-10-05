@@ -552,6 +552,7 @@ class OverlayService : Service() {
         val rec = recorder ?: return
         val tv = previewView ?: return
         if (!tv.isAvailable || previewAttached) return
+        val st = tv.surfaceTexture ?: return
         if (pendingRecordStart) {
             pendingRecordStart = false
             rec.start {
@@ -559,7 +560,7 @@ class OverlayService : Service() {
             }
         }
         previewAttached = true
-        rec.attachPreview(tv.surfaceTexture)
+        rec.attachPreview(st)
     }
 
     /** 进入取景预览：创建独立全屏预览窗口铺底，提词窗口浮在上层保持原样。 */

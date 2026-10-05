@@ -11,6 +11,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.PixelFormat
 import android.graphics.SurfaceTexture
 import android.graphics.Typeface
@@ -94,6 +95,11 @@ class OverlayService : Service() {
     private var previewMode = false
     private var previewAttached = false
     private var pendingRecordStart = false
+    // CENTER_CROP 去重：尺寸没变就不重设变换矩阵
+    private var lastCropBufferW = 0
+    private var lastCropBufferH = 0
+    private var lastCropViewW = 0
+    private var lastCropViewH = 0
     private var collapseButton: TextView? = null
     // 连续滚动跟随：用户手动滚动后暂停自动跟随一段时间
     private var lastUserScrollAt = 0L
@@ -563,6 +569,13 @@ class OverlayService : Service() {
         collapseButton?.visibility = View.VISIBLE
         // 提词面板改半透明，身后的取景画面能透出来（对标飓风效果）
         overlayRoot?.background = roundedBackground(Color.argb(110, 10, 14, 22), 18)
+        // 把 App 自己的页面退到后台：预览画面背后不留 App 操作界面（对标飓风的沉浸取景）。
+        // 有悬浮窗权限的应用豁免 Android 10+ 后台启动限制，从前台服务跳桌面可行。
+        runCatching {
+            val home = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(home)
+        }
         showPreviewWindow()
         bringTranscriptToFront()
         attachPreviewIfReady()
@@ -584,18 +597,23 @@ class OverlayService : Service() {
         updateStatus()
     }
 
-    /** 全屏预览窗口：不可点击（触摸穿透），始终铺满整屏。 */
+    /** 全屏预览窗口：铺满整屏、消费触摸（防止误点到身后的应用/桌面）。 */
     private fun showPreviewWindow() {
         if (previewWindow != null) return
-        val container = FrameLayout(this)
+        val container = FrameLayout(this).apply {
+            isClickable = true
+            setOnClickListener { /* 预览区吞掉点击，不穿透 */ }
+        }
         val tv = TextureView(this).apply {
-            scaleX = -1f // 前置摄像头镜像，符合自拍直觉
             surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                 override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
+                    applyPreviewCrop(st)
                     attachPreviewIfReady()
                 }
 
-                override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) = Unit
+                override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) {
+                    applyPreviewCrop(st)
+                }
 
                 override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
                     recorder?.detachPreview()
@@ -603,7 +621,10 @@ class OverlayService : Service() {
                     return true
                 }
 
-                override fun onSurfaceTextureUpdated(st: SurfaceTexture) = Unit
+                override fun onSurfaceTextureUpdated(st: SurfaceTexture) {
+                    // 首帧到达后 buffer 尺寸才最终确定，再校一次裁剪
+                    applyPreviewCrop(st)
+                }
             }
         }
         container.addView(tv, FrameLayout.LayoutParams(-1, -1))
@@ -612,13 +633,34 @@ class OverlayService : Service() {
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
         )
         windowManager.addView(container, params)
         previewWindow = container
         previewView = tv
+    }
+
+    /**
+     * 预览画面 CENTER_CROP：相机 buffer（多为 4:3）等比放大到铺满全屏后居中裁剪，
+     * 避免 4:3 画面被硬拉伸成 9:19.5 导致人脸变形。水平镜像并入矩阵（前摄自拍视角）。
+     */
+    private fun applyPreviewCrop(st: SurfaceTexture) {
+        val tv = previewView ?: return
+        val vw = tv.width
+        val vh = tv.height
+        if (vw == 0 || vh == 0) return
+        val bs = st.defaultBufferSize
+        if (bs.width == 0 || bs.height == 0) return
+        if (bs.width == lastCropBufferW && bs.height == lastCropBufferH && vw == lastCropViewW && vh == lastCropViewH) return
+        lastCropBufferW = bs.width
+        lastCropBufferH = bs.height
+        lastCropViewW = vw
+        lastCropViewH = vh
+        val scale = maxOf(vw.toFloat() / bs.width, vh.toFloat() / bs.height)
+        val matrix = Matrix()
+        matrix.setScale(-scale, scale, vw / 2f, vh / 2f)
+        tv.setTransform(matrix)
     }
 
     private fun removePreviewWindow() {

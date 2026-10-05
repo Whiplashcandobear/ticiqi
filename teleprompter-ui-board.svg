@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="980" viewBox="0 0 1600 980">
+  <rect width="1600" height="980" fill="#eef5fc"/>
+  <text x="80" y="82" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="38" font-weight="700" fill="#14233d">演讲提词器 · Android UI 样式板</text>
+  <text x="80" y="124" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="19" fill="#55708f">内容优先 · 标准五句上下文 · 默认深色 · 晨蓝强调色</text>
+
+  <g transform="translate(70 180)">
+    <rect width="330" height="700" rx="38" fill="#0d1522"/>
+    <rect x="9" y="9" width="312" height="682" rx="31" fill="#f7f9fc"/>
+    <rect x="135" y="17" width="60" height="16" rx="8" fill="#0d1522"/>
+    <text x="31" y="68" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="13" fill="#71849c">9:30</text>
+    <text x="31" y="122" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="27" font-weight="700" fill="#14233d">演讲提词器</text>
+    <text x="31" y="151" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="14" fill="#71849c">让每一次表达都更从容</text>
+    <rect x="27" y="184" width="276" height="90" rx="18" fill="#2f80ed"/>
+    <circle cx="67" cy="229" r="25" fill="#ffffff"/>
+    <path d="M61 215 L61 243 L82 229 Z" fill="#2f80ed"/>
+    <text x="105" y="223" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="22" font-weight="700" fill="#ffffff">开始提词</text>
+    <text x="105" y="247" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="12" fill="#dcecff">进入播放页</text>
+    <rect x="27" y="296" width="132" height="112" rx="16" fill="#ffffff" stroke="#dce6f2"/>
+    <rect x="171" y="296" width="132" height="112" rx="16" fill="#ffffff" stroke="#dce6f2"/>
+    <text x="49" y="337" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="28" fill="#2f80ed">＋</text>
+    <text x="49" y="367" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="17" font-weight="700" fill="#14233d">新建台本</text>
+    <text x="193" y="337" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" fill="#2f80ed">≡</text>
+    <text x="193" y="367" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="17" font-weight="700" fill="#14233d">播放设置</text>
+    <text x="31" y="459" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="18" font-weight="700" fill="#14233d">最近台本</text>
+    <rect x="27" y="480" width="276" height="112" rx="16" fill="#ffffff" stroke="#dce6f2"/>
+    <text x="49" y="519" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="16" font-weight="700" fill="#14233d">China in the Garden</text>
+    <text x="49" y="545" font-family="Arial, sans-serif" font-size="13" fill="#71849c">1,024 words · 08:32</text>
+    <rect x="49" y="560" width="70" height="6" rx="3" fill="#dbe7f4"/><rect x="49" y="560" width="38" height="6" rx="3" fill="#2f80ed"/>
+    <text x="31" y="650" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="12" fill="#8da0b7">离线可用 · 无需登录</text>
+    <text x="80" y="742" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="18" fill="#466482">01 首页</text>
+  </g>
+
+  <g transform="translate(445 180)">
+    <rect width="330" height="700" rx="38" fill="#0d1522"/>
+    <rect x="9" y="9" width="312" height="682" rx="31" fill="#f7f9fc"/>
+    <rect x="135" y="17" width="60" height="16" rx="8" fill="#0d1522"/>
+    <text x="30" y="68" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="13" fill="#71849c">‹  编辑台本</text>
+    <text x="30" y="113" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="22" font-weight="700" fill="#14233d">英语演讲：Small Habits</text>
+    <rect x="27" y="136" width="276" height="372" rx="16" fill="#ffffff" stroke="#dce6f2"/>
+    <text x="45" y="174" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="15" fill="#14233d">Good morning, everyone.</text>
+    <text x="45" y="210" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="15" fill="#14233d">Today, I would like to talk about</text>
+    <text x="45" y="234" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="15" fill="#14233d">the power of small habits.</text>
+    <text x="45" y="286" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="15" fill="#14233d">They may seem small, but over time,</text>
+    <text x="45" y="310" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="15" fill="#14233d">they create meaningful change.</text>
+    <text x="45" y="362" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="15" fill="#14233d">This idea is simple, but powerful.</text>
+    <text x="45" y="414" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="15" fill="#14233d">One small action can start today.</text>
+    <text x="45" y="478" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="12" fill="#71849c">1,024 words · 08:32 at 120 WPM</text>
+    <rect x="27" y="532" width="276" height="48" rx="14" fill="#e9f2ff" stroke="#bfd8f8"/>
+    <text x="48" y="562" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="15" fill="#1459b7">＋ 粘贴内容（保留段落）</text>
+    <rect x="27" y="596" width="276" height="50" rx="14" fill="#2f80ed"/>
+    <text x="116" y="628" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="17" font-weight="700" fill="#ffffff">保存并开始</text>
+    <text x="80" y="742" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="18" fill="#466482">02 编辑台本</text>
+  </g>
+
+  <g transform="translate(820 180)">
+    <rect width="330" height="700" rx="38" fill="#0d1522"/>
+    <rect x="9" y="9" width="312" height="682" rx="31" fill="#070b12"/>
+    <rect x="135" y="17" width="60" height="16" rx="8" fill="#000000"/>
+    <text x="30" y="66" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="12" fill="#92a2b7">00:05 · 130 WPM</text>
+    <text x="253" y="66" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="12" fill="#92a2b7">竖屏</text>
+    <text x="37" y="148" font-family="Arial, sans-serif" font-size="17" fill="#6d7b8e">Before we begin, let me ask a simple question.</text>
+    <text x="37" y="205" font-family="Arial, sans-serif" font-size="19" fill="#94a2b5">Good morning, everyone.</text>
+    <rect x="25" y="238" width="280" height="117" rx="14" fill="#123b63"/>
+    <text x="40" y="275" font-family="Arial, sans-serif" font-size="24" font-weight="700" fill="#65c8ff">Today, I would like to talk</text>
+    <text x="40" y="307" font-family="Arial, sans-serif" font-size="24" font-weight="700" fill="#65c8ff">about the power of small habits.</text>
+    <text x="37" y="402" font-family="Arial, sans-serif" font-size="18" fill="#94a2b5">They may seem small, but over time,</text>
+    <text x="37" y="429" font-family="Arial, sans-serif" font-size="18" fill="#94a2b5">they create meaningful change.</text>
+    <text x="37" y="489" font-family="Arial, sans-serif" font-size="17" fill="#6d7b8e">This idea is simple, but surprisingly powerful.</text>
+    <rect x="36" y="537" width="258" height="6" rx="3" fill="#263344"/>
+    <rect x="36" y="537" width="106" height="6" rx="3" fill="#42b5ff"/>
+    <text x="37" y="570" font-family="Arial, sans-serif" font-size="12" fill="#738297">第 3 / 12 段</text>
+    <text x="245" y="570" font-family="Arial, sans-serif" font-size="12" fill="#738297">剩余 01:18</text>
+    <circle cx="165" cy="626" r="27" fill="#2f80ed"/><rect x="156" y="614" width="6" height="24" rx="3" fill="#ffffff"/><rect x="168" y="614" width="6" height="24" rx="3" fill="#ffffff"/>
+    <text x="49" y="633" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="12" fill="#a9b5c5">字号</text>
+    <text x="252" y="633" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="12" fill="#a9b5c5">横竖屏</text>
+    <text x="80" y="742" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="18" fill="#466482">03 播放提词</text>
+  </g>
+
+  <g transform="translate(1195 180)">
+    <rect width="330" height="700" rx="38" fill="#0d1522"/>
+    <rect x="9" y="9" width="312" height="682" rx="31" fill="#f7f9fc"/>
+    <rect x="135" y="17" width="60" height="16" rx="8" fill="#0d1522"/>
+    <text x="30" y="68" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="13" fill="#71849c">‹  播放设置</text>
+    <text x="30" y="116" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="22" font-weight="700" fill="#14233d">开始前调整</text>
+    <text x="30" y="163" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="14" font-weight="700" fill="#14233d">滚动速度</text>
+    <rect x="30" y="180" width="270" height="54" rx="13" fill="#ffffff" stroke="#dce6f2"/>
+    <text x="47" y="213" font-family="Arial, sans-serif" font-size="14" fill="#55708f">80</text><text x="96" y="213" font-family="Arial, sans-serif" font-size="14" fill="#55708f">100</text><rect x="139" y="195" width="53" height="26" rx="13" fill="#2f80ed"/><text x="151" y="213" font-family="Arial, sans-serif" font-size="14" font-weight="700" fill="#ffffff">120</text><text x="211" y="213" font-family="Arial, sans-serif" font-size="14" fill="#55708f">140</text><text x="262" y="213" font-family="Arial, sans-serif" font-size="14" fill="#55708f">160</text>
+    <text x="30" y="270" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="14" font-weight="700" fill="#14233d">显示</text>
+    <rect x="30" y="287" width="270" height="55" rx="13" fill="#ffffff" stroke="#dce6f2"/>
+    <text x="47" y="321" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="14" fill="#55708f">字号</text><text x="146" y="321" font-family="Arial, sans-serif" font-size="14" fill="#55708f">小</text><text x="192" y="321" font-family="Arial, sans-serif" font-size="14" font-weight="700" fill="#1459b7">中</text><text x="235" y="321" font-family="Arial, sans-serif" font-size="14" fill="#55708f">大</text><text x="276" y="321" font-family="Arial, sans-serif" font-size="14" fill="#55708f">特大</text>
+    <text x="30" y="379" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="14" font-weight="700" fill="#14233d">字体颜色</text>
+    <circle cx="83" cy="413" r="17" fill="#65c8ff" stroke="#1459b7" stroke-width="4"/><circle cx="153" cy="413" r="17" fill="#ffd76a"/><circle cx="223" cy="413" r="17" fill="#71e1bc"/>
+    <text x="30" y="472" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="14" font-weight="700" fill="#14233d">背景与方向</text>
+    <rect x="30" y="490" width="270" height="55" rx="13" fill="#ffffff" stroke="#dce6f2"/>
+    <text x="47" y="524" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="14" fill="#55708f">深色</text><rect x="96" y="506" width="48" height="25" rx="13" fill="#14233d"/><circle cx="131" cy="518.5" r="9" fill="#ffffff"/><text x="168" y="524" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="14" fill="#55708f">竖屏</text><rect x="215" y="506" width="48" height="25" rx="13" fill="#2f80ed"/><circle cx="250" cy="518.5" r="9" fill="#ffffff"/>
+    <rect x="30" y="584" width="270" height="54" rx="14" fill="#2f80ed"/><text x="113" y="618" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="17" font-weight="700" fill="#ffffff">开始提词</text>
+    <text x="80" y="742" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="18" fill="#466482">04 播放设置</text>
+  </g>
+</svg>

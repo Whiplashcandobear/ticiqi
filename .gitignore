@@ -1,0 +1,28 @@
+.gradle/
+.build/
+build/
+app/build/
+local.properties
+.idea/
+*.iml
+.superpowers/
+
+# Local secrets and signing material
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+keystore.properties
+**/secrets.properties
+google-services.json
+
+# Local outputs and captured artifacts
+*.apk
+*.aab
+captures/
+*.log

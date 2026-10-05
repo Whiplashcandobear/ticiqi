@@ -341,7 +341,10 @@ class OverlayRecorder(
         } ?: pool.first()
     }
 
-    /** 预览尺寸：≤1080p 中最接近 16:9 的受支持尺寸，转成竖屏（w<h）匹配竖屏取景。 */
+    /**
+     * 预览尺寸：优先取**最高的 16:9 受支持尺寸**（全屏裁切放大倍率越低越清晰），
+     * 转成竖屏（w<h）匹配竖屏取景。低分辨率档（如 720p）放大会明显发糊，故排除。
+     */
     private fun pickPreviewSize(): Size {
         val cm = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
         val cameraId = pickFrontCamera(cm) ?: return Size(1080, 1920)
@@ -353,10 +356,13 @@ class OverlayRecorder(
                 .orEmpty()
         }.getOrDefault(emptyList())
         if (sizes.isEmpty()) return Size(1080, 1920)
-        val pool = sizes.filter { it.width <= 1920 && it.height <= 1080 }.ifEmpty { sizes }
-        val best = pool.minByOrNull {
-            abs(it.width.toFloat() / it.height - 16f / 9f) * 10000 + it.width
-        } ?: pool.first()
+        val portraitCap = sizes.filter { it.width <= 1920 && it.height <= 1080 }
+        val pool = portraitCap.ifEmpty { sizes }
+        val best = pool.filter { abs(it.width.toFloat() / it.height - 16f / 9f) < 0.02f }
+            .maxByOrNull { it.width * it.height }
+            ?: pool.filter { it.width >= 960 && it.height >= 720 }.maxByOrNull { it.width * it.height }
+            ?: pool.maxByOrNull { it.width * it.height }
+            ?: pool.first()
         return if (best.width > best.height) Size(best.height, best.width) else best
     }
 

@@ -639,6 +639,10 @@ class OverlayService : Service() {
     /**
      * 预览画面 CENTER_CROP：预览 buffer（16:9 竖屏，由 OverlayRecorder 显式设定）
      * 等比放大铺满全屏后居中裁剪，既不拉伸变形也不留黑边。水平镜像并入矩阵（前摄自拍视角）。
+     *
+     * 注意：setTransform 的矩阵作用在 **buffer 像素坐标系**（不是 view 坐标），
+     * 正确写法是「按 buffer 中心缩放 + 平移到 view 中心」；用 view 中心当锚点会让
+     * 画面被放大数倍且偏移（只剩局部放大画面）。
      */
     private fun applyPreviewCrop() {
         val tv = previewView ?: return
@@ -652,9 +656,18 @@ class OverlayService : Service() {
         lastCropViewW = vw
         lastCropViewH = vh
         val scale = maxOf(vw.toFloat() / bs.width, vh.toFloat() / bs.height)
-        val matrix = Matrix()
-        matrix.setScale(-scale, scale, vw / 2f, vh / 2f)
-        tv.setTransform(matrix)
+        val dx = (vw - bs.width * scale) / 2f
+        val dy = (vh - bs.height * scale) / 2f
+        // 负的 x 缩放 = 水平镜像（前摄自拍视角）
+        tv.setTransform(
+            Matrix(
+                floatArrayOf(
+                    -scale, 0f, dx,
+                    0f, scale, dy,
+                    0f, 0f, 1f
+                )
+            )
+        )
     }
 
     private fun removePreviewWindow() {

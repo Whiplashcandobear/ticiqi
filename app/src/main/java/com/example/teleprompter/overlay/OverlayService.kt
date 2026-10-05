@@ -23,6 +23,9 @@ import android.text.style.ForegroundColorSpan
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.Surface
+import android.view.SurfaceTexture
+import android.view.TextureView
 import android.view.View
 import android.view.WindowManager
 import android.widget.Button
@@ -84,6 +87,12 @@ class OverlayService : Service() {
     // 内置录像：悬浮提词 + 语音跟随的同时用前摄录像（同 UID 允许并发采集麦克风）
     private var recorder: OverlayRecorder? = null
     private var recordButton: TextView? = null
+    // 全屏取景预览（飓风式）：录像时悬浮窗切全屏，前摄预览铺底，提词文字浮在上层
+    private var previewView: TextureView? = null
+    private var previewMode = false
+    private var previewAttached = false
+    private var pendingRecordStart = false
+    private var collapseButton: TextView? = null
     // 连续滚动跟随：用户手动滚动后暂停自动跟随一段时间
     private var lastUserScrollAt = 0L
     private var lastScrollTarget = -1
@@ -174,6 +183,12 @@ class OverlayService : Service() {
         header.addView(label("悬浮提词", 15f, textColor()).apply {
             typeface = Typeface.DEFAULT_BOLD
         }, LinearLayout.LayoutParams(0, dp(38), 1f))
+        collapseButton = label("收起", 13f, secondaryColor()).apply {
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+            setOnClickListener { exitPreviewMode() }
+        }
+        header.addView(collapseButton, LinearLayout.LayoutParams(dp(52), dp(38)))
         header.addView(label("×", 24f, secondaryColor()).apply {
             gravity = Gravity.CENTER
             setOnClickListener { stopSelf() }
@@ -248,6 +263,28 @@ class OverlayService : Service() {
         root.addView(statusText, LinearLayout.LayoutParams(-1, dp(22)))
 
         frame.addView(root, FrameLayout.LayoutParams(-1, -1))
+
+        // 全屏预览层：位于 root 之下，录像时可见（前置摄像头镜像自拍视角）
+        val preview = TextureView(this).apply {
+            visibility = View.GONE
+            surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
+                    attachPreviewIfReady()
+                }
+
+                override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) = Unit
+
+                override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
+                    recorder?.detachPreview()
+                    previewAttached = false
+                    return true
+                }
+
+                override fun onSurfaceTextureUpdated(st: SurfaceTexture) = Unit
+            }
+        }
+        frame.addView(preview, 0, FrameLayout.LayoutParams(-1, -1))
+        previewView = preview
 
         // 右下角缩放手柄：按住拖动调整悬浮窗大小
         val grip = TextView(this).apply {
@@ -482,15 +519,7 @@ class OverlayService : Service() {
     private fun toggleRecording() {
         val rec = recorder
         if (rec?.isRecording == true) {
-            rec.stop { uri ->
-                scope.launch {
-                    if (uri != null) {
-                        Toast.makeText(this@OverlayService, "录像已保存到 相册 › Movies › ticiqi", Toast.LENGTH_LONG).show()
-                    }
-                    updateRecordButton()
-                    updateStatus()
-                }
-            }
+            stopRecording()
             return
         }
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
@@ -507,12 +536,86 @@ class OverlayService : Service() {
         }.also { recorder = it }
         // 先刷新前台服务类型（录像需要 camera 类型），再开相机
         startForegroundCompat()
-        target.start {
+        if (!previewMode) {
+            // 进入全屏取景预览，Surface 就绪后自动开始录像
+            pendingRecordStart = true
+            enterPreviewMode()
+            attachPreviewIfReady()
+        } else {
+            // 已在全屏预览（上次录完仍在取景）：直接开录
+            target.start {
+                scope.launch { updateRecordButton(); updateStatus() }
+            }
+        }
+    }
+
+    private fun stopRecording() {
+        recorder?.stop { uri ->
             scope.launch {
+                if (uri != null) {
+                    Toast.makeText(this@OverlayService, "录像已保存到 相册 › Movies › ticiqi", Toast.LENGTH_LONG).show()
+                }
                 updateRecordButton()
                 updateStatus()
             }
         }
+    }
+
+    /** TextureView Surface 就绪后：挂起预览；若等待开始录像则同时触发。 */
+    private fun attachPreviewIfReady() {
+        val rec = recorder ?: return
+        val tv = previewView ?: return
+        if (!tv.isAvailable || previewAttached) return
+        if (pendingRecordStart) {
+            pendingRecordStart = false
+            rec.start {
+                scope.launch { updateRecordButton(); updateStatus() }
+            }
+        }
+        previewAttached = true
+        rec.attachPreview(Surface(tv.surfaceTexture))
+    }
+
+    /** 悬浮窗切全屏：前摄预览铺底，提词与控件浮在上层。 */
+    private fun enterPreviewMode() {
+        previewMode = true
+        previewView?.visibility = View.VISIBLE
+        previewView?.scaleX = -1f // 前置摄像头镜像，符合自拍直觉
+        val params = overlayParams ?: return
+        params.width = WindowManager.LayoutParams.MATCH_PARENT
+        params.height = WindowManager.LayoutParams.MATCH_PARENT
+        params.x = 0
+        params.y = 0
+        overlayRoot?.let { windowManager.updateViewLayout(it, params) }
+        // 半透明压暗 + 文字面板，保证任何背景下可读
+        overlayRoot?.background = roundedBackground(Color.argb(70, 0, 0, 0), 18)
+        transcriptScroll?.background = roundedBackground(Color.argb(150, 8, 12, 20), 14)
+        statusText?.background = roundedBackground(Color.argb(150, 8, 12, 20), 14)
+        collapseButton?.visibility = View.VISIBLE
+        updateRecordButton()
+        updateStatus()
+    }
+
+    /** 退出全屏预览：停录、释放相机、恢复小窗。 */
+    private fun exitPreviewMode() {
+        if (recorder?.isRecording == true) stopRecording()
+        previewMode = false
+        previewAttached = false
+        pendingRecordStart = false
+        previewView?.visibility = View.GONE
+        recorder?.detachPreview()
+        val params = overlayParams ?: return
+        params.width = dp(settings.overlayWidthDp.coerceIn(MIN_OVERLAY_SIZE_DP, 720))
+        params.height = dp(settings.overlayHeightDp.coerceIn(MIN_OVERLAY_SIZE_DP, 720))
+        params.x = dp(16)
+        params.y = dp(120)
+        overlayRoot?.let { windowManager.updateViewLayout(it, params) }
+        overlayRoot?.background = roundedBackground(surfaceColor(), 18)
+        transcriptScroll?.background = null
+        statusText?.background = null
+        collapseButton?.visibility = View.GONE
+        updateRecordButton()
+        updateStatus()
     }
 
     private fun updateRecordButton() {

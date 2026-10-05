@@ -14,6 +14,7 @@ import android.os.Environment
 import android.os.ParcelFileDescriptor
 import android.provider.MediaStore
 import android.util.Size
+import android.view.Surface
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -21,11 +22,14 @@ import java.util.Locale
 import kotlin.math.abs
 
 /**
- * 悬浮提词内置录像：前置摄像头 + 麦克风（Camera2 + MediaRecorder）。
+ * 悬浮提词内置录像 + 实时预览：前置摄像头（Camera2）+ 麦克风（MediaRecorder）。
  *
  * 为什么能和语音跟随同时工作：Android 10+ 的麦克风采集独占策略只限制「不同 UID」的
  * 应用争抢；同一个 APP 内 MediaRecorder 与 AudioRecord 同 UID，允许并发采集，
  * 因此边录边跟随不会被系统静音（这与打开系统相机是两回事）。
+ *
+ * 预览：通过 [attachPreview] 传入预览 Surface，与录制 Surface 同一会话输出，
+ * 录制时也能实时看到取景；[detachPreview] 退出预览。
  *
  * 录像保存到公共相册 Movies/ticiqi/（MediaStore，无需存储权限）。
  */
@@ -37,9 +41,13 @@ class OverlayRecorder(
     private var camera: CameraDevice? = null
     private var session: CameraCaptureSession? = null
     private var recorder: MediaRecorder? = null
+    private var recSurface: Surface? = null
+    private var previewSurface: Surface? = null
     private var pfd: ParcelFileDescriptor? = null
     private var outputUri: Uri? = null
     private var startedAt = 0L
+    private var pendingStart = false
+    private var startCallback: (() -> Unit)? = null
 
     @Volatile
     var isRecording = false
@@ -48,112 +56,42 @@ class OverlayRecorder(
     fun elapsedSeconds(): Int =
         if (!isRecording) 0 else ((System.currentTimeMillis() - startedAt) / 1000).toInt()
 
-    /** 异步启动：成功后回调 [onReady]（可能来自相机线程）。失败回调 [onError]。 */
+    /** 附加预览 Surface（主线程调用）：没有相机则打开相机，有则重建会话。 */
+    fun attachPreview(surface: Surface) {
+        previewSurface = surface
+        if (camera == null) openCamera() else rebuildSession()
+    }
+
+    /** 移除预览：不在录像时直接释放相机；录像中则退回仅录制的会话。 */
+    fun detachPreview() {
+        previewSurface = null
+        if (!isRecording) {
+            releaseCamera()
+        } else {
+            rebuildSession()
+        }
+    }
+
+    /** 启动录像（主线程调用）：成功后回调 [onReady]。 */
     fun start(onReady: () -> Unit) {
         if (isRecording) {
             onReady()
             return
         }
         try {
-            val rec = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                MediaRecorder(context)
-            } else {
-                @Suppress("DEPRECATION") MediaRecorder()
-            }
-            recorder = rec
-
-            rec.setAudioSource(MediaRecorder.AudioSource.CAMCORDER)
-            rec.setVideoSource(MediaRecorder.VideoSource.SURFACE)
-            rec.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-            rec.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-            rec.setAudioEncodingBitRate(128_000)
-            rec.setAudioSamplingRate(44_100)
-            rec.setVideoEncoder(MediaRecorder.VideoEncoder.H264)
-            rec.setVideoFrameRate(30)
-            rec.setVideoEncodingBitRate(8_000_000)
-
-            val cm = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
-            val cameraId = pickFrontCamera(cm)
-                ?: run { onError("没有找到可用摄像头"); cleanup(); return }
-            val characteristics = cm.getCameraCharacteristics(cameraId)
-            val sizes = characteristics
-                .get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
-                ?.getOutputSizes(MediaRecorder::class.java)
-                ?.toList()
-                .orEmpty()
-            val size = chooseVideoSize(sizes)
-            rec.setVideoSize(size.width, size.height)
-            // 竖屏持机：以前置摄像头的传感器方向作为播放方向提示
-            val sensorOrientation = characteristics
-                .get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
-            rec.setOrientationHint(sensorOrientation)
-
-            val uri = createOutput()
-            if (uri == null) {
-                onError("创建录像文件失败")
-                cleanup()
-                return
-            }
-            outputUri = uri
-            rec.setOutputFile(pfd!!.fileDescriptor)
-            rec.prepare()
-            val recSurface = rec.surface
-
-            cm.openCamera(cameraId, object : CameraDevice.StateCallback() {
-                override fun onOpened(device: CameraDevice) {
-                    if (recorder == null) { device.close(); return }
-                    camera = device
-                    try {
-                        device.createCaptureSession(
-                            listOf(recSurface),
-                            object : CameraCaptureSession.StateCallback() {
-                                override fun onConfigured(s: CameraCaptureSession) {
-                                    if (recorder == null) { s.close(); device.close(); return }
-                                    session = s
-                                    val request = device.createCaptureRequest(CameraDevice.TEMPLATE_RECORD).apply {
-                                        addTarget(recSurface)
-                                        set(
-                                            CaptureRequest.CONTROL_AF_MODE,
-                                            CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO
-                                        )
-                                    }.build()
-                                    s.setRepeatingRequest(request, null, null)
-                                    rec.start()
-                                    isRecording = true
-                                    startedAt = System.currentTimeMillis()
-                                    onReady()
-                                }
-
-                                override fun onConfigureFailed(s: CameraCaptureSession) {
-                                    onError("相机会话配置失败")
-                                    cleanup()
-                                }
-                            },
-                            null
-                        )
-                    } catch (e: Throwable) {
-                        onError("启动相机失败：${e.message}")
-                        cleanup()
-                    }
-                }
-
-                override fun onDisconnected(device: CameraDevice) {
-                    device.close()
-                    camera = null
-                }
-
-                override fun onError(device: CameraDevice, error: Int) {
-                    onError("打开相机失败（代码 $error）")
-                    cleanup()
-                }
-            }, null)
+            if (recorder == null && !prepareRecorder()) return
+            startCallback = onReady
+            pendingStart = true
+            if (camera == null) openCamera() else rebuildSession()
         } catch (e: Throwable) {
+            pendingStart = false
+            startCallback = null
             onError("录像启动失败：${e.message}")
-            cleanup()
+            releaseRecorderOnly()
         }
     }
 
-    /** 停止并保存（异步回调已保存的相册 Uri，可能来自相机线程）。 */
+    /** 停止并保存（主线程调用；回调已保存的相册 Uri）。 */
     fun stop(onSaved: (Uri?) -> Unit) {
         if (!isRecording) {
             onSaved(null)
@@ -179,27 +117,170 @@ class OverlayRecorder(
             runCatching { outputUri?.let { context.contentResolver.delete(it, null, null) } }
         }
         val uri = savedUri
-        cleanup()
+        releaseRecorderOnly()
+        if (previewSurface != null) rebuildSession() else releaseCamera()
         onSaved(uri)
     }
 
-    /** 立即释放资源（不保证成片），用于服务销毁等场景。 */
+    /** 立即释放全部资源（不保证成片），用于服务销毁等场景。 */
     fun releaseNow() {
+        pendingStart = false
         isRecording = false
         runCatching { recorder?.stop() }
-        cleanup()
+        releaseRecorderOnly()
+        releaseCamera()
+        previewSurface = null
     }
 
-    private fun cleanup() {
+    // ---------- 内部实现 ----------
+
+    private fun prepareRecorder(): Boolean {
+        val rec = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            MediaRecorder(context)
+        } else {
+            @Suppress("DEPRECATION") MediaRecorder()
+        }
+        rec.setAudioSource(MediaRecorder.AudioSource.CAMCORDER)
+        rec.setVideoSource(MediaRecorder.VideoSource.SURFACE)
+        rec.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+        rec.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+        rec.setAudioEncodingBitRate(128_000)
+        rec.setAudioSamplingRate(44_100)
+        rec.setVideoEncoder(MediaRecorder.VideoEncoder.H264)
+        rec.setVideoFrameRate(30)
+        rec.setVideoEncodingBitRate(8_000_000)
+
+        val cm = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+        val cameraId = pickFrontCamera(cm)
+        if (cameraId == null) {
+            onError("没有找到可用摄像头")
+            return false
+        }
+        val characteristics = cm.getCameraCharacteristics(cameraId)
+        val sizes = characteristics
+            .get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+            ?.getOutputSizes(MediaRecorder::class.java)
+            ?.toList()
+            .orEmpty()
+        val size = chooseVideoSize(sizes)
+        rec.setVideoSize(size.width, size.height)
+        // 竖屏持机：以前置摄像头的传感器方向作为播放方向提示
+        val sensorOrientation = characteristics
+            .get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
+        rec.setOrientationHint(sensorOrientation)
+
+        val uri = createOutput()
+        if (uri == null) {
+            onError("创建录像文件失败")
+            return false
+        }
+        outputUri = uri
+        rec.setOutputFile(pfd!!.fileDescriptor)
+        rec.prepare()
+        recorder = rec
+        recSurface = rec.surface
+        return true
+    }
+
+    private fun openCamera() {
+        val cm = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+        val cameraId = pickFrontCamera(cm)
+        if (cameraId == null) {
+            onError("没有找到可用摄像头")
+            return
+        }
+        try {
+            cm.openCamera(cameraId, object : CameraDevice.StateCallback() {
+                override fun onOpened(device: CameraDevice) {
+                    camera = device
+                    rebuildSession()
+                }
+
+                override fun onDisconnected(device: CameraDevice) {
+                    device.close()
+                    if (camera === device) camera = null
+                }
+
+                override fun onError(device: CameraDevice, error: Int) {
+                    onError("打开相机失败（代码 $error）")
+                    releaseCamera()
+                }
+            }, null)
+        } catch (e: SecurityException) {
+            onError("没有相机权限")
+        } catch (e: Throwable) {
+            onError("打开相机失败：${e.message}")
+        }
+    }
+
+    /** 按当前 recorder/preview Surface 组合重建会话；pendingStart 时在配置成功后启动录像。 */
+    private fun rebuildSession() {
+        val device = camera ?: return
+        val targets = mutableListOf<Surface>()
+        recSurface?.let { targets.add(it) }
+        previewSurface?.let { targets.add(it) }
+        if (targets.isEmpty()) {
+            releaseCamera()
+            return
+        }
+        runCatching { session?.close() }
+        session = null
+        val template =
+            if (isRecording || pendingStart) CameraDevice.TEMPLATE_RECORD else CameraDevice.TEMPLATE_PREVIEW
+        try {
+            device.createCaptureSession(targets, object : CameraCaptureSession.StateCallback() {
+                override fun onConfigured(s: CameraCaptureSession) {
+                    if (camera == null) {
+                        s.close()
+                        return
+                    }
+                    session = s
+                    try {
+                        val request = device.createCaptureRequest(template).apply {
+                            targets.forEach { addTarget(it) }
+                            set(
+                                CaptureRequest.CONTROL_AF_MODE,
+                                CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO
+                            )
+                        }.build()
+                        s.setRepeatingRequest(request, null, null)
+                        if (pendingStart) {
+                            pendingStart = false
+                            recorder?.start()
+                            isRecording = true
+                            startedAt = System.currentTimeMillis()
+                            startCallback?.invoke()
+                            startCallback = null
+                        }
+                    } catch (e: Throwable) {
+                        onError("启动取景/录像失败：${e.message}")
+                    }
+                }
+
+                override fun onConfigureFailed(s: CameraCaptureSession) {
+                    pendingStart = false
+                    onError("相机会话配置失败")
+                }
+            }, null)
+        } catch (e: Throwable) {
+            pendingStart = false
+            onError("配置相机会话失败：${e.message}")
+        }
+    }
+
+    private fun releaseRecorderOnly() {
+        runCatching { recorder?.release() }
+        recorder = null
+        recSurface = null
+        runCatching { pfd?.close() }
+        pfd = null
+    }
+
+    private fun releaseCamera() {
         runCatching { session?.close() }
         runCatching { camera?.close() }
         session = null
         camera = null
-        runCatching { recorder?.release() }
-        recorder = null
-        runCatching { pfd?.close() }
-        pfd = null
-        if (!isRecording) outputUri = null
     }
 
     private fun pickFrontCamera(cm: CameraManager): String? {

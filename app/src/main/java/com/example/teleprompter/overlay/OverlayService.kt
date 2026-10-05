@@ -655,10 +655,18 @@ class OverlayService : Service() {
         lastCropBufferH = bs.height
         lastCropViewW = vw
         lastCropViewH = vh
-        val scale = maxOf(vw.toFloat() / bs.width, vh.toFloat() / bs.height)
-        val dx = (vw - bs.width * scale) / 2f
-        val dy = (vh - bs.height * scale) / 2f
-        // 负的 x 缩放 = 水平镜像（前摄自拍视角）
+        val bw = bs.width.toFloat()
+        val bh = bs.height.toFloat()
+        val cropScale = maxOf(vw / bw, vh / bh)
+        val fitScale = minOf(vw / bw, vh / bh)
+        // 若相机没按我们请求的 buffer 尺寸输出（scale 过大说明画面比预期小很多），
+        // 宁可等比缩小留黑边，也不要过度放大导致糊成一片
+        val scale = if (cropScale <= MAX_CROP_UPSCALE) cropScale else fitScale
+        // 水平镜像：x' = -scale*x + dx。变换后内容区间为 [dx - scale*bw, dx]，
+        // 让其中心 dx - scale*bw/2 落在屏幕中心 vw/2，解得 dx = (vw + scale*bw)/2。
+        // 注意这里是「加号」：用减号版本会把整幅画面推出屏幕左侧 → 黑屏。
+        val dx = (vw + bw * scale) / 2f
+        val dy = (vh - bh * scale) / 2f
         val matrix = Matrix()
         matrix.setValues(
             floatArrayOf(
@@ -721,7 +729,9 @@ class OverlayService : Service() {
         val rec = recorder
         val recIndicator = if (rec?.isRecording == true) {
             val s = rec.elapsedSeconds()
-            " ● 录像中 ${s / 60}:${(s % 60).toString().padStart(2, '0')}"
+            // 带上取景分辨率，便于排查预览比例/黑屏问题
+            val ps = rec.previewSize
+            " ● 录像中 ${s / 60}:${(s % 60).toString().padStart(2, '0')} ${ps.width}×${ps.height}"
         } else ""
         val mode = when {
             settings.promptMode == PromptMode.FIXED_WPM -> "固定 ${settings.speed} 字/分"
@@ -907,6 +917,8 @@ class OverlayService : Service() {
         const val NOTIFICATION_ID = 42
         const val MIN_OVERLAY_SIZE_DP = 200
         const val USER_SCROLL_PAUSE_MS = 3000L
+        // 取景放大量上限：超过说明相机没按请求的 buffer 尺寸输出，宁可留黑边也别糊
+        const val MAX_CROP_UPSCALE = 1.35f
 
         fun start(context: Context, scriptId: Long, index: Int, progress: Float) {
             val intent = Intent(context.applicationContext, OverlayService::class.java).apply {

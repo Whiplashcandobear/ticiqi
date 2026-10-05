@@ -6,14 +6,13 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
-import android.os.ParcelFileDescriptor
 import android.provider.MediaStore
 import android.util.Log
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.video.FallbackStrategy
-import androidx.camera.video.FileOutputOptions
+import androidx.camera.video.MediaStoreOutputOptions
 import androidx.camera.video.Quality
 import androidx.camera.video.QualitySelector
 import androidx.camera.video.Recorder
@@ -57,8 +56,6 @@ class OverlayRecorder(
     private var cameraProvider: ProcessCameraProvider? = null
     private var videoCapture: VideoCapture<Recorder>? = null
     private var recording: Recording? = null
-    private var pfd: ParcelFileDescriptor? = null
-    private var outputUri: Uri? = null
     private var startedAt = 0L
     private var pendingStart = false
     private var startCallback: (() -> Unit)? = null
@@ -142,8 +139,6 @@ class OverlayRecorder(
         runCatching { cameraProvider?.unbindAll() }
         videoCapture = null
         cameraProvider = null
-        runCatching { pfd?.close() }
-        pfd = null
         lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
     }
 
@@ -163,16 +158,13 @@ class OverlayRecorder(
             listOf(Quality.FHD, Quality.HD, Quality.SD),
             FallbackStrategy.lowerQualityOrHigherThan(Quality.SD)
         )
-        val preview = Preview.Builder()
-            .setTargetRotation(previewRotation())
-            .build()
-            .also { it.setSurfaceProvider(surfaceProvider) }
-        val capture = VideoCapture.withOutput(
-            Recorder.Builder()
-                .setQualitySelector(qualitySelector)
-                .setTargetRotation(previewRotation())
-                .build()
-        )
+        val previewBuilder = Preview.Builder()
+        previewBuilder.setTargetRotation(previewRotation())
+        val preview = previewBuilder.build()
+        preview.setSurfaceProvider(surfaceProvider)
+        val recorderBuilder = Recorder.Builder()
+        recorderBuilder.setQualitySelector(qualitySelector)
+        val capture = VideoCapture.withOutput(recorderBuilder.build())
         try {
             provider.unbindAll()
             provider.bindToLifecycle(this, selector, preview, capture)
@@ -189,15 +181,24 @@ class OverlayRecorder(
     }
 
     private fun beginRecording(capture: VideoCapture<Recorder>, onReady: () -> Unit) {
-        val target = createOutput()
-        if (target == null) {
-            onError("创建录像文件失败")
-            return
+        val name = "ticiqi_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.mp4"
+        val values = ContentValues().apply {
+            put(MediaStore.Video.Media.DISPLAY_NAME, name)
+            put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(
+                    MediaStore.Video.Media.RELATIVE_PATH,
+                    Environment.DIRECTORY_MOVIES + File.separator + "ticiqi"
+                )
+            }
         }
-        val (uri, fd) = target
-        outputUri = uri
-        pfd = fd
-        val options = FileOutputOptions.Builder(fd.fileDescriptor).build()
+        // MediaStoreOutputOptions：CameraX 自动处理 IS_PENDING（成功可见/失败清理）
+        val optionsBuilder = MediaStoreOutputOptions.Builder(
+            context.contentResolver,
+            MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+        ).setContentValues(values)
+        optionsBuilder.setTargetRotation(previewRotation())
+        val options = optionsBuilder.build()
         var pending = capture.output.prepareRecording(context, options)
         if (context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) ==
             PackageManager.PERMISSION_GRANTED
@@ -218,26 +219,18 @@ class OverlayRecorder(
                     is VideoRecordEvent.Finalize -> {
                         isRecording = false
                         recording = null
-                        runCatching { pfd?.close() }
-                        pfd = null
-                        val code = event.error
-                        if (code == VideoRecordEvent.Finalize.ERROR_NONE) {
-                            releasePending(uri)
-                            stopCallback?.invoke(uri)
-                        } else {
-                            // 成片不完整：删掉占位记录，相册不留坏文件
-                            runCatching { context.contentResolver.delete(uri, null, null) }
-                            onError("录像失败（错误码 $code）")
+                        val uri = event.outputResults.outputUri
+                        if (event.hasError()) {
+                            onError("录像失败（错误码 ${event.error}）")
                             stopCallback?.invoke(null)
+                        } else {
+                            stopCallback?.invoke(uri)
                         }
                         stopCallback = null
                     }
                 }
             }
         } catch (e: Throwable) {
-            runCatching { context.contentResolver.delete(uri, null, null) }
-            runCatching { pfd?.close() }
-            pfd = null
             onError("录像启动失败：${e.message}")
             stopCallback = null
         }
@@ -250,44 +243,6 @@ class OverlayRecorder(
             return
         }
         runCatching { active.stop() }
-    }
-
-    /** 解除 IS_PENDING，录像才会出现在相册里。 */
-    private fun releasePending(uri: Uri) {
-        runCatching {
-            val values = ContentValues().apply {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    put(MediaStore.Video.Media.IS_PENDING, 0)
-                }
-            }
-            context.contentResolver.update(uri, values, null, null)
-        }
-    }
-
-    private fun createOutput(): Pair<Uri, ParcelFileDescriptor>? = try {
-        val name = "ticiqi_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.mp4"
-        val values = ContentValues().apply {
-            put(MediaStore.Video.Media.DISPLAY_NAME, name)
-            put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + File.separator + "ticiqi")
-                put(MediaStore.Video.Media.IS_PENDING, 1)
-            }
-        }
-        val uri = context.contentResolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
-        if (uri == null) {
-            null
-        } else {
-            val fd = context.contentResolver.openFileDescriptor(uri, "rw")
-            if (fd == null) {
-                runCatching { context.contentResolver.delete(uri, null, null) }
-                null
-            } else {
-                uri to fd
-            }
-        }
-    } catch (e: Throwable) {
-        null
     }
 
     @Suppress("DEPRECATION")

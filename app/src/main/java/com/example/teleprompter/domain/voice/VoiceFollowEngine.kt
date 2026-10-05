@@ -21,7 +21,7 @@ data class VoiceFollowState(
  * for Chinese).
  */
 class VoiceFollowEngine(
-    units: List<SpeechUnit>,
+    private val units: List<SpeechUnit>,
     initialUnitIndex: Int = 0,
     private val fallbackAfterMillis: Long = 2_000L,
     startAtMillis: Long = System.currentTimeMillis()

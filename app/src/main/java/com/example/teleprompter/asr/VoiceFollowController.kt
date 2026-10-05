@@ -6,8 +6,8 @@ import android.os.Looper
 import com.example.teleprompter.domain.model.AsrMode
 import com.example.teleprompter.domain.model.DisplaySettings
 import com.example.teleprompter.domain.model.SpeechUnit
-import com.example.teleprompter.domain.model.VoiceFollowState
 import com.example.teleprompter.domain.voice.VoiceFollowEngine
+import com.example.teleprompter.domain.voice.VoiceFollowState
 
 /**
  * 把"识别引擎 + 中文字符级对齐 + 回退链"封装成一个可控单元，供悬浮窗与播放页共用。

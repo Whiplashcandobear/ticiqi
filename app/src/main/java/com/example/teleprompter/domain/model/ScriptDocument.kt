@@ -56,9 +56,13 @@ data class DisplaySettings(
     val countdownSeconds: Int = 5,
     val landscape: Boolean = false,
     val promptMode: PromptMode = PromptMode.FIXED_WPM,
-    val asrMode: AsrMode = AsrMode.SYSTEM,
+    // 默认用本地模型：国产 ROM 多无 Google 识别服务，系统识别不可用；本地模型离线且可靠。
+    val asrMode: AsrMode = AsrMode.LOCAL,
     val localModelId: String = "SMALL_CTC_ZH_INT8",
-    val cloudConfig: CloudAsrConfig = CloudAsrConfig()
+    val cloudConfig: CloudAsrConfig = CloudAsrConfig(),
+    // 悬浮窗尺寸（dp），可在悬浮窗内拖角调节。
+    val overlayWidthDp: Int = 320,
+    val overlayHeightDp: Int = 320
 )
 
 data class SpeechUnit(

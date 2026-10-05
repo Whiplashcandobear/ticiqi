@@ -61,7 +61,7 @@ class OverlayService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var store: LocalStore
     private lateinit var windowManager: WindowManager
-    private var overlayRoot: LinearLayout? = null
+    private var overlayRoot: FrameLayout? = null
     private var overlayParams: WindowManager.LayoutParams? = null
     private var script: ScriptDocument? = null
     private var settings = DisplaySettings()
@@ -143,11 +143,14 @@ class OverlayService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun showOverlay() {
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(10), dp(8), dp(10), dp(8))
+        val frame = FrameLayout(this).apply {
             background = roundedBackground(surfaceColor(), 18)
             elevation = dp(8).toFloat()
+        }
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            // 底部多留出缩放手柄的空间
+            setPadding(dp(10), dp(8), dp(10), dp(26))
         }
 
         val header = LinearLayout(this).apply {
@@ -222,10 +225,22 @@ class OverlayService : Service() {
         statusText = label("", 11f, secondaryColor()).apply { gravity = Gravity.CENTER }
         root.addView(statusText, LinearLayout.LayoutParams(-1, dp(22)))
 
-        overlayRoot = root
+        frame.addView(root, FrameLayout.LayoutParams(-1, -1))
+
+        // 右下角缩放手柄：按住拖动调整悬浮窗大小
+        val grip = TextView(this).apply {
+            text = "◢"
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            setTextColor(secondaryColor())
+            gravity = Gravity.CENTER
+            setOnTouchListener(createResizeListener())
+        }
+        frame.addView(grip, FrameLayout.LayoutParams(dp(34), dp(34), Gravity.BOTTOM or Gravity.END))
+
+        overlayRoot = frame
         val params = WindowManager.LayoutParams(
-            dp(320),
-            dp(320),
+            dp(settings.overlayWidthDp.coerceIn(MIN_OVERLAY_SIZE_DP, 720)),
+            dp(settings.overlayHeightDp.coerceIn(MIN_OVERLAY_SIZE_DP, 720)),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
@@ -235,8 +250,54 @@ class OverlayService : Service() {
             y = dp(120)
         }
         overlayParams = params
-        windowManager.addView(root, params)
+        windowManager.addView(frame, params)
         renderTranscript()
+    }
+
+    private fun createResizeListener(): View.OnTouchListener = object : View.OnTouchListener {
+        private var downX = 0f
+        private var downY = 0f
+        private var startWidth = 0
+        private var startHeight = 0
+
+        override fun onTouch(view: View, event: MotionEvent): Boolean {
+            val params = overlayParams ?: return false
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.rawX
+                    downY = event.rawY
+                    startWidth = params.width
+                    startHeight = params.height
+                    return true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val metrics = resources.displayMetrics
+                    val maxW = (metrics.widthPixels * 0.94f).toInt()
+                    val maxH = (metrics.heightPixels * 0.85f).toInt()
+                    params.width = (startWidth + (event.rawX - downX).toInt())
+                        .coerceIn(dp(MIN_OVERLAY_SIZE_DP), maxW)
+                    params.height = (startHeight + (event.rawY - downY).toInt())
+                        .coerceIn(dp(MIN_OVERLAY_SIZE_DP), maxH)
+                    overlayRoot?.let { windowManager.updateViewLayout(it, params) }
+                    return true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    persistOverlaySize(params.width, params.height)
+                    return true
+                }
+            }
+            return true
+        }
+    }
+
+    private fun persistOverlaySize(widthPx: Int, heightPx: Int) {
+        val density = resources.displayMetrics.density
+        val w = ((widthPx / density) + 0.5f).toInt().coerceIn(MIN_OVERLAY_SIZE_DP, 720)
+        val h = ((heightPx / density) + 0.5f).toInt().coerceIn(MIN_OVERLAY_SIZE_DP, 720)
+        if (w != settings.overlayWidthDp || h != settings.overlayHeightDp) {
+            settings = settings.copy(overlayWidthDp = w, overlayHeightDp = h)
+            store.saveSettings(settings)
+        }
     }
 
     private fun actionButton(text: String, onClick: () -> Unit): TextView = label(text, 13f, textColor()).apply {
@@ -417,6 +478,7 @@ class OverlayService : Service() {
         }
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             voiceUnavailable = true
+            voiceEngineStatus = "未授权麦克风，请到系统设置开启"
             updateStatus()
             return
         }
@@ -428,6 +490,7 @@ class OverlayService : Service() {
             onState = { applyVoiceState(it) },
             onUnavailable = { reason ->
                 voiceUnavailable = true
+                voiceEngineStatus = reason
                 updateStatus()
             },
             onStatus = { msg ->
@@ -534,6 +597,7 @@ class OverlayService : Service() {
         const val EXTRA_INDEX = "index"
         const val EXTRA_PROGRESS = "progress"
         const val NOTIFICATION_ID = 42
+        const val MIN_OVERLAY_SIZE_DP = 200
 
         fun start(context: Context, scriptId: Long, index: Int, progress: Float) {
             val intent = Intent(context.applicationContext, OverlayService::class.java).apply {

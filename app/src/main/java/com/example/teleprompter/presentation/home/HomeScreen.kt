@@ -27,9 +27,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.teleprompter.OverlayLauncherActivity
 import com.example.teleprompter.data.LocalStore
 import com.example.teleprompter.domain.model.ScriptDocument
 import com.example.teleprompter.domain.parser.countReadingUnits
@@ -41,9 +43,9 @@ fun HomeScreen(
     store: LocalStore,
     onNew: () -> Unit,
     onEdit: (Long) -> Unit,
-    onSettings: (Long) -> Unit,
-    onPlay: (Long) -> Unit
+    onSettings: (Long) -> Unit
 ) {
+    val context = LocalContext.current
     var scripts by remember { mutableStateOf(store.loadScripts()) }
     var deleteId by remember { mutableLongStateOf(0L) }
     val recent = scripts.sortedByDescending { it.updatedAt }
@@ -56,8 +58,15 @@ fun HomeScreen(
             Text("演讲提词器", fontSize = 30.sp, fontWeight = FontWeight.Bold)
             Text("让每一次表达都更从容", color = MaterialTheme.colorScheme.secondary)
 
-            Button(onClick = { if (recent.isEmpty()) onNew() else onPlay(recent.first().id) }, modifier = Modifier.fillMaxWidth().height(64.dp)) {
-                Text(if (recent.isEmpty()) "开始提词" else "继续最近台本", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            // 默认悬浮提词：点一下直接弹悬浮窗（首次会引导授权）
+            Button(
+                onClick = {
+                    val target = recent.firstOrNull()
+                    if (target == null) onNew() else OverlayLauncherActivity.start(context, target.id)
+                },
+                modifier = Modifier.fillMaxWidth().height(64.dp)
+            ) {
+                Text(if (recent.isEmpty()) "开始提词" else "开始悬浮提词", fontSize = 20.sp, fontWeight = FontWeight.Bold)
             }
 
             Row(modifier = Modifier.fillMaxWidth()) {
@@ -79,7 +88,7 @@ fun HomeScreen(
                         ScriptCard(
                             script = script,
                             onEdit = { onEdit(script.id) },
-                            onPlay = { onPlay(script.id) },
+                            onPlay = { OverlayLauncherActivity.start(context, script.id) },
                             onDelete = { deleteId = script.id }
                         )
                     }

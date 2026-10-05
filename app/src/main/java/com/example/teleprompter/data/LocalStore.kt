@@ -63,11 +63,13 @@ class LocalStore(context: Context) {
             landscape = item.optBoolean("landscape", false),
             promptMode = runCatching { PromptMode.valueOf(item.optString("promptMode", "FIXED_WPM")) }
                 .getOrDefault(PromptMode.FIXED_WPM),
-            asrMode = runCatching { AsrMode.valueOf(item.optString("asrMode", "SYSTEM")) }
-                .getOrDefault(AsrMode.SYSTEM),
+            asrMode = runCatching { AsrMode.valueOf(item.optString("asrMode", "LOCAL")) }
+                .getOrDefault(AsrMode.LOCAL),
             localModelId = item.optString("localModelId", "SMALL_CTC_ZH_INT8"),
             cloudConfig = runCatching { cloudConfigFrom(item.optJSONObject("cloudConfig")) }
-                .getOrDefault(CloudAsrConfig())
+                .getOrDefault(CloudAsrConfig()),
+            overlayWidthDp = item.optInt("overlayWidthDp", 320),
+            overlayHeightDp = item.optInt("overlayHeightDp", 320)
         )
     }.getOrDefault(DisplaySettings())
 
@@ -94,6 +96,8 @@ class LocalStore(context: Context) {
             .put("asrMode", settings.asrMode.name)
             .put("localModelId", settings.localModelId)
             .put("cloudConfig", cloudJson)
+            .put("overlayWidthDp", settings.overlayWidthDp)
+            .put("overlayHeightDp", settings.overlayHeightDp)
         preferences.edit().putString(KEY_SETTINGS, item.toString()).apply()
     }
 

@@ -2,6 +2,7 @@ package com.example.teleprompter
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -15,6 +16,7 @@ import com.example.teleprompter.presentation.theme.TeleprompterTheme
 @Composable
 fun TeleprompterApp(store: LocalStore) {
     val navController = rememberNavController()
+    val context = LocalContext.current
     val defaultSettings = remember { store.loadSettings() }
     TeleprompterTheme(defaultSettings) {
         NavHost(navController = navController, startDestination = "home") {
@@ -23,8 +25,7 @@ fun TeleprompterApp(store: LocalStore) {
                     store = store,
                     onNew = { navController.navigate("editor/0") },
                     onEdit = { navController.navigate("editor/$it") },
-                    onSettings = { navController.navigate("settings/$it") },
-                    onPlay = { navController.navigate("settings/$it") }
+                    onSettings = { navController.navigate("settings/$it") }
                 )
             }
             composable("editor/{scriptId}") { entry ->
@@ -42,7 +43,8 @@ fun TeleprompterApp(store: LocalStore) {
                     store = store,
                     scriptId = id,
                     onBack = { navController.popBackStack() },
-                    onStart = { navController.navigate("playback/$it") }
+                    onStart = { OverlayLauncherActivity.start(context, it) },
+                    onFullscreen = { navController.navigate("playback/$it") }
                 )
             }
             composable("playback/{scriptId}") { entry ->

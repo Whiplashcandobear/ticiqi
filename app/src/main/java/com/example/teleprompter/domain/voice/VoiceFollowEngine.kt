@@ -24,6 +24,8 @@ class VoiceFollowEngine(
     private val units: List<SpeechUnit>,
     initialUnitIndex: Int = 0,
     private val fallbackAfterMillis: Long = 2_000L,
+    /** 首次匹配前的宽限期：本地模型加载/下载、用户开口前的静默都不算"识别中断"。 */
+    private val firstMatchGraceMillis: Long = 15_000L,
     startAtMillis: Long = System.currentTimeMillis()
 ) {
     private val alignment: TeleprompterAlignment
@@ -92,7 +94,8 @@ class VoiceFollowEngine(
     }
 
     fun onTick(nowMillis: Long): VoiceFollowState {
-        if (nowMillis - lastValidRecognitionAt >= fallbackAfterMillis) {
+        val threshold = if (hasStableMatch) fallbackAfterMillis else firstMatchGraceMillis
+        if (nowMillis - lastValidRecognitionAt >= threshold) {
             fallbackToWpm = true
             recoveryStreak = 0
         }

@@ -54,7 +54,7 @@ import kotlinx.coroutines.delay
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
-fun PlaybackSettingsScreen(store: LocalStore, scriptId: Long, onBack: () -> Unit, onStart: (Long) -> Unit) {
+fun PlaybackSettingsScreen(store: LocalStore, scriptId: Long, onBack: () -> Unit, onStart: (Long) -> Unit, onFullscreen: (Long) -> Unit) {
     val script = remember(scriptId) { store.loadScripts().firstOrNull { it.id == scriptId } }
     var settings by remember { mutableStateOf(store.loadSettings()) }
     if (script == null) {
@@ -214,7 +214,10 @@ fun PlaybackSettingsScreen(store: LocalStore, scriptId: Long, onBack: () -> Unit
             Text("播放中可用 −10 / +10 字/分 即时微调，当前句会继续播放且不会跳回；你仍可上下滚动浏览全文。", color = MaterialTheme.colorScheme.secondary, fontSize = 13.sp)
             Spacer(Modifier.height(4.dp))
             Button(onClick = { onStart(script.id) }, modifier = Modifier.fillMaxWidth().height(56.dp)) {
-                Text("开始提词", fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                Text("开始提词（悬浮窗）", fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            }
+            OutlinedButton(onClick = { onFullscreen(script.id) }, modifier = Modifier.fillMaxWidth().height(48.dp)) {
+                Text("全屏提词", fontSize = 14.sp)
             }
             Spacer(Modifier.height(20.dp))
         }

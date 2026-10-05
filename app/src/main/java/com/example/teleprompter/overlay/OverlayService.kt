@@ -55,7 +55,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlin.math.max
 
 class OverlayService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -81,6 +80,9 @@ class OverlayService : Service() {
     private var voiceState: VoiceFollowState? = null
     private var voiceUnavailable = false
     private var voiceEngineStatus = ""
+    // 连续滚动跟随：用户手动滚动后暂停自动跟随一段时间
+    private var lastUserScrollAt = 0L
+    private var lastScrollTarget = -1
 
     override fun onCreate() {
         super.onCreate()
@@ -182,7 +184,11 @@ class OverlayService : Service() {
                     currentIndex = position.index
                     this@OverlayService.progress = position.progress
                     controller?.setCursor(position.index, position.progress)
-                    renderTranscript()
+                    refreshLineStyles()
+                    updateStatus()
+                    updateSeekBar()
+                    lastScrollTarget = -1
+                    updateScrollFollowing()
                 }
 
                 override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
@@ -196,6 +202,14 @@ class OverlayService : Service() {
             isFillViewport = false
             clipToPadding = false
             setPadding(0, 0, 0, dp(4))
+            // 用户手动滚动时暂停自动跟随，松手后稍等片刻再接管
+            setOnTouchListener { _, event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE ->
+                        lastUserScrollAt = System.currentTimeMillis()
+                }
+                false
+            }
         }
         val transcript = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -353,13 +367,28 @@ class OverlayService : Service() {
         updateCurrentLine()
         updateStatus()
         updateSeekBar()
-        scrollToCurrentLine()
+        lastScrollTarget = -1
+        updateScrollFollowing()
     }
 
-    private fun scrollToCurrentLine() {
-        transcriptScroll?.post {
-            val current = lineViews.getOrNull(currentIndex) ?: return@post
-            transcriptScroll?.smoothScrollTo(0, max(0, current.top - (transcriptScroll?.height ?: 0) / 3))
+    /**
+     * 连续滚动跟随：让「当前正读到的位置」（当前句顶部 + 句内进度×句高）
+     * 始终保持在窗口中部，随朗读进度平滑滚动，而不是整句切换时跳一下。
+     */
+    private fun updateScrollFollowing() {
+        val scroll = transcriptScroll ?: return
+        val current = lineViews.getOrNull(currentIndex) ?: return
+        if (scroll.height <= 0) {
+            scroll.post { updateScrollFollowing() }
+            return
+        }
+        // 用户刚手动滚动过，暂停自动跟随，避免抢滚动条
+        if (System.currentTimeMillis() - lastUserScrollAt < USER_SCROLL_PAUSE_MS) return
+        val anchorY = current.top + current.height * progress.coerceIn(0f, 1f)
+        val target = (anchorY - scroll.height / 2f).toInt().coerceAtLeast(0)
+        if (lastScrollTarget < 0 || Math.abs(target - lastScrollTarget) > dp(1)) {
+            lastScrollTarget = target
+            scroll.smoothScrollTo(0, target)
         }
     }
 
@@ -374,9 +403,22 @@ class OverlayService : Service() {
 
     private fun updateLine(index: Int, view: TextView, unit: SpeechUnit) {
         val current = index == currentIndex
-        view.textSize = if (current) overlayFontSize() else overlayFontSize() * 0.78f
+        val past = index < currentIndex
+        // 全文统一字号常显，当前句用加粗+强调色+底色高亮，已读句淡出
+        view.textSize = overlayFontSize()
         view.typeface = if (current) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-        view.setTextColor(if (current) accentColor() else secondaryColor())
+        view.setTextColor(
+            when {
+                current -> accentColor()
+                past -> secondaryColor()
+                else -> textColor()
+            }
+        )
+        view.alpha = when {
+            current -> 1f
+            past -> 0.7f
+            else -> 0.92f
+        }
         view.background = if (current) roundedBackground(accentColor(), 10, 0.15f) else null
         view.text = if (current) currentSpannable() else unit.rawText
     }
@@ -407,7 +449,7 @@ class OverlayService : Service() {
                     progress = 0f
                     if (currentIndex < units.lastIndex) {
                         currentIndex += 1
-                        renderTranscript()
+                        refreshLineStyles()
                     } else {
                         isPlaying = false
                         updatePlayButton()
@@ -417,6 +459,8 @@ class OverlayService : Service() {
                     updateSeekBar()
                 }
                 updateStatus()
+                // 边读边滚：每 100ms 把阅读锚点往窗口中部平滑推进
+                updateScrollFollowing()
             }
         }
     }
@@ -476,12 +520,13 @@ class OverlayService : Service() {
             currentIndex = newUnit
             progress = next.characterProgress.coerceIn(0f, 1f)
             if (moved) {
-                // 前进或回头都整行刷新样式，并滚动到当前句（回头重读时会向上滚）
+                // 前进或回头都整行刷新样式（回头重读时会向上滚）
                 refreshLineStyles()
-                scrollToCurrentLine()
             } else {
                 lineViews.getOrNull(currentIndex)?.text = currentSpannable()
             }
+            // 边读边滚：句内进度变化也持续平滑滚动
+            updateScrollFollowing()
         }
         updateStatus()
         updateSeekBar()
@@ -625,6 +670,7 @@ class OverlayService : Service() {
         const val EXTRA_PROGRESS = "progress"
         const val NOTIFICATION_ID = 42
         const val MIN_OVERLAY_SIZE_DP = 200
+        const val USER_SCROLL_PAUSE_MS = 3000L
 
         fun start(context: Context, scriptId: Long, index: Int, progress: Float) {
             val intent = Intent(context.applicationContext, OverlayService::class.java).apply {

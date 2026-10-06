@@ -48,6 +48,13 @@ class VoiceFollowEngine(
     private var hasStableMatch = false
     private var lastHeard = ""
     private var lastMatched = false
+    /** 最近一次收到非空识别文本的时刻（用于判断"用户是否正在说话"）。 */
+    private var lastVoiceAt = 0L
+    /** 上次容错推进的时刻（冷却控制）。 */
+    private var lastNudgeAt = 0L
+    /** 待确认的弱回退信号。 */
+    private var pendingBacktrack: ScriptAligner.ScriptMatch? = null
+    private var backtrackConfirmations = 0
 
     init {
         val content = units.joinToString(" ") { it.rawText }
@@ -71,11 +78,18 @@ class VoiceFollowEngine(
     fun startSession(nowMillis: Long = System.currentTimeMillis()) {
         lastValidRecognitionAt = nowMillis
         hasStableMatch = false
+        lastVoiceAt = 0L
+        lastNudgeAt = 0L
+        pendingBacktrack = null
+        backtrackConfirmations = 0
         seekTo(currentIndex, characterProgress)
     }
 
     /** 用户手动拖动进度条 / 重新开始时调用。 */
     fun setCursor(unitIndex: Int, progress: Float = 0f) {
+        pendingBacktrack = null
+        backtrackConfirmations = 0
+        lastNudgeAt = 0L
         seekTo(unitIndex, progress)
     }
 
@@ -98,19 +112,77 @@ class VoiceFollowEngine(
         if (utterance.isEmpty()) {
             return snapshot(nowMillis)
         }
+        lastVoiceAt = nowMillis
         val match = aligner.match(utterance, currentClean)
         lastMatched = match != null
         if (match == null) {
-            // 与台本无关的话（乱说/寒暄/短暂跑题）：光标原地不动。
+            // 没匹配上：若用户正在连续说话且光标已接近本句末尾，容错推进一小步，
+            // 避免"下一句前几个字没识别对 → 永远卡住"（用户实测的核心痛点）。
+            maybeNudgeForward(nowMillis)
             return snapshot(nowMillis)
         }
-        currentClean = match.endClean.coerceIn(0, totalClean)
+
+        // 回退滞回：往回滚必须证据更充分（强证据 + 命中点确实在光标之前），
+        // 否则弱匹配会让画面在两句之间来回跳。
+        if (match.startClean < currentClean - BACKTRACK_TOLERANCE && match.tier != ScriptAligner.Tier.STRONG) {
+            pendingBacktrack = match
+        } else if (match.tier == ScriptAligner.Tier.STRONG || match.startClean >= currentClean - BACKTRACK_TOLERANCE) {
+            pendingBacktrack = null
+        }
+        val effective = when {
+            // 弱回退信号需要连续两次一致才真的滚回去
+            pendingBacktrack?.let { it.startClean == match.startClean } == true -> {
+                if (++backtrackConfirmations >= BACKTRACK_CONFIRMATIONS) {
+                    pendingBacktrack = null
+                    backtrackConfirmations = 0
+                    match
+                } else {
+                    null
+                }
+            }
+            match.startClean >= currentClean - BACKTRACK_TOLERANCE -> {
+                backtrackConfirmations = 0
+                match
+            }
+            else -> {
+                backtrackConfirmations = 0
+                null
+            }
+        }
+        if (effective == null) return snapshot(nowMillis)
+
+        currentClean = effective.endClean.coerceIn(0, totalClean)
         val (unitIndex, fraction) = resolveUnit(currentClean, boundaryIsEnd = true)
         currentIndex = unitIndex
         characterProgress = fraction
         lastValidRecognitionAt = nowMillis
         hasStableMatch = true
+        lastNudgeAt = 0L
         return snapshot(nowMillis)
+    }
+
+    /**
+     * 容错推进：识别一直有内容（用户在说）但连续匹配不上，且光标已到当前句末尾附近时，
+     * 把光标往下一句推一小步（到下一句开头），让跟读不至于卡死。
+     *
+     * 保护措施：
+     *  - 必须已经有过成功匹配（hasStableMatch），避免开场乱说话就乱跑；
+     *  - 必须距上次推进有 [NUDGE_COOLDOWN_MS] 冷却，避免连续跳句；
+     *  - 每次只推进一句。
+     */
+    private fun maybeNudgeForward(nowMillis: Long) {
+        if (!hasStableMatch) return
+        if (nowMillis - lastVoiceAt > VOICE_ACTIVE_WINDOW_MS) return
+        if (nowMillis - lastNudgeAt < NUDGE_COOLDOWN_MS) return
+        if (currentIndex >= lastUnitIndex) return
+        val len = unitCleanLen.getOrElse(currentIndex) { 0 }
+        if (len <= 0) return
+        // 只在"当前句已念到 85% 以后"时容错推进，避免整句没念完就跳
+        if (currentClean < unitCleanStart.getOrElse(currentIndex) { 0 } + (len * NUDGE_TAIL_RATIO).toInt()) return
+        currentIndex += 1
+        characterProgress = 0f
+        currentClean = unitCleanStart.getOrElse(currentIndex) { 0 }
+        lastNudgeAt = nowMillis
     }
 
     fun onTick(nowMillis: Long): VoiceFollowState = snapshot(nowMillis)
@@ -161,5 +233,20 @@ class VoiceFollowEngine(
 
         /** 状态里携带的"听到"摘要长度。 */
         private const val HEARD_SNIPPET_CHARS = 10
+
+        /** 判定"用户正在说话"的时间窗：两次识别间隔超过它就不做容错推进。 */
+        private const val VOICE_ACTIVE_WINDOW_MS = 2500L
+
+        /** 容错推进的冷却时间，防止连续跳句。 */
+        private const val NUDGE_COOLDOWN_MS = 900L
+
+        /** 当前句念到这个比例之后，才允许容错推进到下一句。 */
+        private const val NUDGE_TAIL_RATIO = 0.85f
+
+        /** 命中点比光标落后这么多字才算"往回滚"。 */
+        private const val BACKTRACK_TOLERANCE = 8
+
+        /** 弱回退需要连续确认几次才真的滚回去（防抖动）。 */
+        private const val BACKTRACK_CONFIRMATIONS = 2
     }
 }

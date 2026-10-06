@@ -53,6 +53,9 @@ jobs:
           echo "encoder.int8.onnx = $ENC_SIZE bytes"
           test "$ENC_SIZE" -gt 100000000
 
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest --no-daemon --console=plain
+
       - name: Build debug APK
         run: ./gradlew assembleDebug --no-daemon --console=plain
 

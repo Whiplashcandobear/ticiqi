@@ -89,6 +89,8 @@ class OverlayService : Service() {
     // 提词窗口保持原大小/位置浮在上层，缩放/拖动互不影响
     private var previewWindow: FrameLayout? = null
     private var previewView: PreviewView? = null
+    // 全屏取景底部控制条中间的「开始/停止录像」按钮
+    private var previewRecordButton: TextView? = null
     private var previewMode = false
     private var previewAttached = false
     private var pendingRecordStart = false
@@ -603,6 +605,7 @@ class OverlayService : Service() {
             scaleX = -1f
         }
         container.addView(view, FrameLayout.LayoutParams(-1, -1))
+        container.addView(buildPreviewControls(), previewControlParams())
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -616,11 +619,97 @@ class OverlayService : Service() {
         previewView = view
     }
 
+    /** 底部控制条布局参数：贴底居中，避开提词面板。 */
+    private fun previewControlParams() = FrameLayout.LayoutParams(
+        FrameLayout.LayoutParams.MATCH_PARENT,
+        dp(112),
+        Gravity.BOTTOM
+    ).apply { bottomMargin = dp(28) }
+
+    /**
+     * 全屏取景的底部控制条（对标图二）：左侧取消、中间开始/停止录像、右侧翻转镜头。
+     * 放在预览窗口内，所以永远压在取景画面之上，且不影响上层提词窗口的触摸。
+     */
+    private fun buildPreviewControls(): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(36), 0, dp(36), 0)
+        }
+        row.addView(
+            circleButton("✕", dp(52), Color.argb(120, 12, 16, 22)) {
+                // 取消：停止录像并退出取景
+                exitPreviewMode()
+            },
+            LinearLayout.LayoutParams(0, dp(52), 1f)
+        )
+        row.addView(
+            recordToggleButton(),
+            LinearLayout.LayoutParams(0, dp(76), 1.4f)
+        )
+        row.addView(
+            circleButton("⇄", dp(52), Color.argb(120, 12, 16, 22)) {
+                flipCamera()
+            },
+            LinearLayout.LayoutParams(0, dp(52), 1f)
+        )
+        return row
+    }
+
+    /** 中间的开始/停止录像按钮：未录是红色圆点，录制中是白色方块（对标 app 的样式）。 */
+    private fun recordToggleButton(): TextView {
+        val button = TextView(this).apply {
+            gravity = Gravity.CENTER
+            textSize = 20f
+            setTextColor(Color.WHITE)
+            setBackground(
+                roundedBackground(Color.argb(190, 255, 45, 85), 100)
+            )
+            setOnClickListener { toggleRecording() }
+        }
+        previewRecordButton = button
+        return button
+    }
+
+    private fun circleButton(
+        label: String,
+        sizeDp: Int,
+        bgColor: Int,
+        onClick: () -> Unit
+    ): TextView = TextView(this).apply {
+        gravity = Gravity.CENTER
+        text = label
+        textSize = 20f
+        setTextColor(Color.WHITE)
+        setBackground(roundedBackground(bgColor, 100))
+        setOnClickListener { onClick() }
+    }
+
+    /** 翻转前后镜头：录像中会先落盘当前片段再切换。 */
+    private fun flipCamera() {
+        val rec = recorder ?: return
+        voiceEngineStatus = "正在切换镜头…"
+        updateStatus()
+        rec.flipCamera { ok ->
+            scope.launch {
+                if (ok) {
+                    // 前置自拍视角需要水平镜像，后置不镜像
+                    previewView?.scaleX = if (rec.isFrontFacing) -1f else 1f
+                    voiceEngineStatus = if (rec.isFrontFacing) "已切换到前置镜头" else "已切换到后置镜头"
+                } else {
+                    voiceEngineStatus = "镜头切换失败"
+                }
+                updateRecordButton()
+                updateStatus()
+            }
+        }
+    }
 
     private fun removePreviewWindow() {
         val window = previewWindow ?: return
         previewWindow = null
         previewView = null
+        previewRecordButton = null
         runCatching { windowManager.removeViewImmediate(window) }
     }
 
@@ -636,10 +725,23 @@ class OverlayService : Service() {
 
     private fun updateRecordButton() {
         val recording = recorder?.isRecording == true
+        // 提词面板里的「录像/停止」：预览模式下隐藏（底部控制条已有同样的操作）
+        recordButton?.visibility = if (previewMode) View.GONE else View.VISIBLE
         recordButton?.text = if (recording) "停止" else "录像"
         recordButton?.setTextColor(
             if (recording) Color.rgb(255, 107, 107) else textColor()
         )
+        // 底部中央按钮：未录=红色圆点，录制中=白色方块
+        previewRecordButton?.let { button ->
+            button.text = if (recording) "■" else "●"
+            button.setBackground(
+                roundedBackground(
+                    if (recording) Color.argb(210, 255, 255, 255) else Color.argb(215, 255, 45, 85),
+                    100
+                )
+            )
+            button.setTextColor(if (recording) Color.rgb(220, 20, 60) else Color.WHITE)
+        }
     }
 
     private fun changeSpeed(delta: Int) {

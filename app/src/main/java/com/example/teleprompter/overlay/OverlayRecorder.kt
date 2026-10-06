@@ -56,7 +56,16 @@ class OverlayRecorder(
     private var cameraProvider: ProcessCameraProvider? = null
     private var videoCapture: VideoCapture<Recorder>? = null
     private var recording: Recording? = null
+    private var currentSurfaceProvider: Preview.SurfaceProvider? = null
     private var startedAt = 0L
+
+    /** 当前镜头朝向：默认前置（自拍口播场景）。 */
+    @Volatile
+    var lensFacing: Int = CameraSelector.LENS_FACING_FRONT
+        private set
+
+    /** 是否为前置镜头（决定取景是否水平镜像）。 */
+    val isFrontFacing: Boolean get() = lensFacing == CameraSelector.LENS_FACING_FRONT
     private var pendingStart = false
     private var startCallback: (() -> Unit)? = null
     private var stopCallback: ((Uri?) -> Unit)? = null
@@ -129,6 +138,41 @@ class OverlayRecorder(
         stopInternal()
     }
 
+    /**
+     * 翻转镜头：前置 ↔ 后置。CameraX 通过换 CameraSelector 重新 bind 实现。
+     * 录像中翻转会先落盘当前片段再切换，避免文件损坏。
+     */
+    fun flipCamera(onDone: (Boolean) -> Unit) {
+        val provider = cameraProvider
+        val surfaceProvider = currentSurfaceProvider
+        if (provider == null || surfaceProvider == null) {
+            onDone(false)
+            return
+        }
+        val wasRecording = isRecording
+        if (wasRecording) {
+            // 先停止并等 Finalize 落盘，再换镜头
+            stopCallback = { _ ->
+                lensFacing = if (lensFacing == CameraSelector.LENS_FACING_FRONT) {
+                    CameraSelector.LENS_FACING_BACK
+                } else {
+                    CameraSelector.LENS_FACING_FRONT
+                }
+                bindUseCases(provider, surfaceProvider)
+                onDone(true)
+            }
+            stopInternal()
+            return
+        }
+        lensFacing = if (lensFacing == CameraSelector.LENS_FACING_FRONT) {
+            CameraSelector.LENS_FACING_BACK
+        } else {
+            CameraSelector.LENS_FACING_FRONT
+        }
+        bindUseCases(provider, surfaceProvider)
+        onDone(true)
+    }
+
     /** 服务销毁：立即释放全部资源（不保证成片）。 */
     fun releaseNow() {
         destroyed = true
@@ -139,15 +183,28 @@ class OverlayRecorder(
         runCatching { cameraProvider?.unbindAll() }
         videoCapture = null
         cameraProvider = null
+        currentSurfaceProvider = null
         lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
     }
 
     // ---------- 内部实现 ----------
 
     private fun bindUseCases(provider: ProcessCameraProvider, surfaceProvider: Preview.SurfaceProvider) {
+        currentSurfaceProvider = surfaceProvider
         val selector = when {
-            provider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA) -> CameraSelector.DEFAULT_FRONT_CAMERA
-            provider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA) -> CameraSelector.DEFAULT_BACK_CAMERA
+            lensFacing == CameraSelector.LENS_FACING_FRONT &&
+                provider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA) -> CameraSelector.DEFAULT_FRONT_CAMERA
+            lensFacing == CameraSelector.LENS_FACING_BACK &&
+                provider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA) -> CameraSelector.DEFAULT_BACK_CAMERA
+            // 目标镜头不存在（部分机器只有单摄）→ 退回另一个可用的
+            provider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA) -> {
+                lensFacing = CameraSelector.LENS_FACING_FRONT
+                CameraSelector.DEFAULT_FRONT_CAMERA
+            }
+            provider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA) -> {
+                lensFacing = CameraSelector.LENS_FACING_BACK
+                CameraSelector.DEFAULT_BACK_CAMERA
+            }
             else -> {
                 onError("没有找到可用摄像头")
                 return

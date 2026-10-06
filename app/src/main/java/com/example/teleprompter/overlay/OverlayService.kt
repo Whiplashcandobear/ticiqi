@@ -89,6 +89,8 @@ class OverlayService : Service() {
     // 提词窗口保持原大小/位置浮在上层，缩放/拖动互不影响
     private var previewWindow: FrameLayout? = null
     private var previewView: PreviewView? = null
+    // 控制栏按钮（底色透明度随取景状态变化）
+    private val controlButtons = mutableListOf<TextView>()
     // 全屏取景底部控制条中间的「开始/停止录像」按钮
     private var previewRecordButton: TextView? = null
     private var previewMode = false
@@ -182,7 +184,7 @@ class OverlayService : Service() {
 
     private fun showOverlay() {
         val frame = FrameLayout(this).apply {
-            background = roundedBackground(surfaceColor(), 18)
+            background = panelBackground()
             elevation = dp(8).toFloat()
         }
         val root = LinearLayout(this).apply {
@@ -360,7 +362,9 @@ class OverlayService : Service() {
 
     private fun actionButton(text: String, onClick: () -> Unit): TextView = label(text, 13f, textColor()).apply {
         gravity = Gravity.CENTER
-        background = roundedBackground(buttonColor(), 12)
+        // 半透明黑底（对标 app 控件风格），取景时可透出画面
+        background = roundedBackground(Color.argb(if (previewMode) 110 else 190, 18, 24, 34), 12)
+        controlButtons.add(this)
         setOnClickListener { onClick() }
         setPadding(dp(6), 0, dp(6), 0)
         layoutParams = LinearLayout.LayoutParams(0, dp(36), 1f).apply {
@@ -463,7 +467,20 @@ class OverlayService : Service() {
             past -> 0.7f
             else -> 0.92f
         }
-        view.background = if (current) roundedBackground(accentColor(), 10, 0.15f) else null
+        // 取景时给当前句加半透明黑底 + 细白描边，文字在明亮画面上依然清晰（对标 app 效果）；
+        // 非取景时沿用原来的强调色浅底
+        view.background = if (current) {
+            if (previewMode) {
+                roundedBackground(Color.argb(96, 0, 0, 0), 10).apply {
+                    setStroke(dp(1), Color.argb(150, 255, 255, 255))
+                }
+            } else {
+                roundedBackground(accentColor(), 10, 0.15f)
+            }
+        } else {
+            null
+        }
+        applyTextShadow(view)
         view.text = if (current) currentSpannable() else unit.rawText
     }
 
@@ -585,10 +602,12 @@ class OverlayService : Service() {
         previewMode = true
         collapseButton?.visibility = View.VISIBLE
         // 提词面板改半透明，身后的取景画面能透出来（对标飓风效果）
-        overlayRoot?.background = roundedBackground(Color.argb(110, 10, 14, 22), 18)
+        overlayRoot?.background = panelBackground()
+        applyControlBarAlpha()
         showPreviewWindow()
         bringTranscriptToFront()
         attachPreviewIfReady()
+        refreshLineStyles()
         updateRecordButton()
         updateStatus()
     }
@@ -599,11 +618,24 @@ class OverlayService : Service() {
         previewMode = false
         previewAttached = false
         collapseButton?.visibility = View.GONE
-        overlayRoot?.background = roundedBackground(surfaceColor(), 18)
+        overlayRoot?.background = panelBackground()
+        applyControlBarAlpha()
         recorder?.detachPreview()
         removePreviewWindow()
+        refreshLineStyles()
         updateRecordButton()
         updateStatus()
+    }
+
+    /** 控制栏/状态栏底色的透明度依赖是否在取景，取景切换时统一刷新一次。 */
+    private fun applyControlBarAlpha() {
+        val alpha = if (previewMode) 110 else 190
+        controlButtons.forEach { btn ->
+            btn.background = roundedBackground(Color.argb(alpha, 18, 24, 34), 12)
+        }
+        statusText?.background = roundedBackground(
+            Color.argb(if (previewMode) 90 else 150, 10, 14, 22), 8
+        )
     }
 
     /** 全屏预览窗口：铺满整屏、消费触摸（防止误点到身后的应用/桌面）。 */
@@ -777,7 +809,7 @@ class OverlayService : Service() {
             themeMode = if (settings.themeMode == ThemeMode.DARK) ThemeMode.LIGHT else ThemeMode.DARK
         )
         store.saveSettings(settings)
-        overlayRoot?.background = roundedBackground(surfaceColor(), 18)
+        overlayRoot?.background = panelBackground()
         renderTranscript()
     }
 
@@ -933,6 +965,8 @@ class OverlayService : Service() {
         this.text = text
         setTextSize(TypedValue.COMPLEX_UNIT_SP, size)
         setTextColor(color)
+        // 半透明面板上所有文字都加轻微阴影，亮画面下也能看清
+        applyTextShadow(this)
     }
 
     private fun roundedBackground(color: Int, radius: Int, alpha: Float = 1f) = GradientDrawable().apply {
@@ -940,8 +974,21 @@ class OverlayService : Service() {
         cornerRadius = dp(radius).toFloat()
     }
 
+    /**
+     * 提词面板背景：**半透明深色玻璃**（对标 app 效果）——身后的取景/人脸能透出来，
+     * 配合文字阴影保证在明亮画面上依然清晰可读。取景时更透一些。
+     */
+    private fun panelBackground(): GradientDrawable = roundedBackground(
+        if (previewMode) Color.argb(120, 6, 10, 18) else Color.argb(165, 10, 15, 24),
+        18
+    )
+
+    /** 给文字加黑色阴影：半透明面板上文字依然清晰（对标 app 的字都有阴影）。 */
+    private fun applyTextShadow(view: TextView) {
+        view.setShadowLayer(dp(3).toFloat(), 0f, dp(1).toFloat(), Color.argb(230, 0, 0, 0))
+    }
+
     private fun surfaceColor() = if (settings.themeMode == ThemeMode.DARK) Color.rgb(16, 23, 34) else Color.WHITE
-    private fun buttonColor() = if (settings.themeMode == ThemeMode.DARK) Color.rgb(35, 48, 65) else Color.rgb(232, 239, 248)
     private fun textColor() = if (settings.themeMode == ThemeMode.DARK) Color.rgb(244, 247, 251) else Color.rgb(20, 35, 61)
     private fun secondaryColor() = if (settings.themeMode == ThemeMode.DARK) Color.rgb(148, 162, 181) else Color.rgb(85, 112, 143)
     private fun accentColor() = when (settings.accentColor) {

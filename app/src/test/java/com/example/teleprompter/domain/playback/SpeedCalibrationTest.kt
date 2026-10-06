@@ -31,7 +31,7 @@ class SpeedCalibrationTest {
     @Test
     fun stepsRateByTenWithoutCrossingBounds() {
         assertEquals(135, stepRate(125, +10))
-        assertEquals(115, stepRate(125, -10))
+        assertEquals(120, stepRate(125, -10)) // MIN_RATE=120，不得越下界
         assertEquals(120, stepRate(120, -10))
         assertEquals(400, stepRate(400, +10))
     }

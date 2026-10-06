@@ -18,7 +18,7 @@ class PlaybackEngineTest {
     @Test
     fun enforcesMinimumSegmentDuration() {
         val unit = SpeechUnit("One.", 1, 0)
-        assertEquals(1.5, segmentDurationSeconds(unit, 160), 0.001)
+        assertEquals(1.0, segmentDurationSeconds(unit, 160), 0.001) // 字/分模型：单字下限 1.0s
     }
 
     @Test

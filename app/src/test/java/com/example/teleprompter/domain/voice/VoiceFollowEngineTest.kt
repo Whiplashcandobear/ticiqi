@@ -145,9 +145,9 @@ class VoiceFollowEngineTest {
         engine.onRecognition("第一句话内容在这里。", 500L)
         val before = engine.state()
 
-        // 识别持续有内容但完全匹配不上（乱码），且之前已成功匹配过 → 容错推进
+        // 识别持续有内容但完全匹配不上（乱码），且已卡住超过 STUCK_AFTER_MS → 容错推进
         var state = engine.state(600L)
-        for (t in 700L..3000L step 100L) {
+        for (t in 800L..6000L step 100L) {
             state = engine.onRecognition("嗯嗯啊啊嗯嗯", t)
         }
 
@@ -190,5 +190,23 @@ class VoiceFollowEngineTest {
         }
 
         assertEquals(0, state.currentUnitIndex)
+    }
+
+    /** 念完一句后立刻插一句无关的话，不应被当成"卡住"而推进（保护插话场景）。 */
+    @Test
+    fun `brief interjection right after a sentence does not nudge forward`() {
+        val speech = listOf(
+            SpeechUnit("第一句话内容在这里。", 9, 0),
+            SpeechUnit("第二句话内容也在这里。", 10, 1)
+        )
+        val engine = VoiceFollowEngine(speech, startAtMillis = 0L)
+        engine.onRecognition("第一句话内容在这里", 300L)
+        engine.onRecognition("第一句话内容在这里。", 500L)
+        val before = engine.state()
+
+        // 200ms 后就插话，远短于 STUCK_AFTER_MS(1500)
+        val state = engine.onRecognition("今天天气不错啊", 700L)
+
+        assertEquals("插话不应推进", before.currentUnitIndex, state.currentUnitIndex)
     }
 }

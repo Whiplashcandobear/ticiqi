@@ -363,7 +363,7 @@ class OverlayService : Service() {
     private fun actionButton(text: String, onClick: () -> Unit): TextView = label(text, 13f, textColor()).apply {
         gravity = Gravity.CENTER
         // 半透明黑底（对标 app 控件风格），取景时可透出画面
-        background = roundedBackground(Color.argb(if (previewMode) 110 else 190, 18, 24, 34), 12)
+        background = roundedBackground(CONTROL_COLOR, 12, if (previewMode) 0.40f else 0.75f)
         controlButtons.add(this)
         setOnClickListener { onClick() }
         setPadding(dp(6), 0, dp(6), 0)
@@ -471,7 +471,7 @@ class OverlayService : Service() {
         // 非取景时沿用原来的强调色浅底
         view.background = if (current) {
             if (previewMode) {
-                roundedBackground(Color.argb(96, 0, 0, 0), 10).apply {
+                roundedBackground(Color.BLACK, 10, 0.38f).apply {
                     setStroke(dp(1), Color.argb(150, 255, 255, 255))
                 }
             } else {
@@ -629,13 +629,10 @@ class OverlayService : Service() {
 
     /** 控制栏/状态栏底色的透明度依赖是否在取景，取景切换时统一刷新一次。 */
     private fun applyControlBarAlpha() {
-        val alpha = if (previewMode) 110 else 190
         controlButtons.forEach { btn ->
-            btn.background = roundedBackground(Color.argb(alpha, 18, 24, 34), 12)
+            btn.background = roundedBackground(CONTROL_COLOR, 12, if (previewMode) 0.40f else 0.75f)
         }
-        statusText?.background = roundedBackground(
-            Color.argb(if (previewMode) 90 else 150, 10, 14, 22), 8
-        )
+        statusText?.background = roundedBackground(PANEL_COLOR, 8, if (previewMode) 0.34f else 0.60f)
     }
 
     /** 全屏预览窗口：铺满整屏、消费触摸（防止误点到身后的应用/桌面）。 */
@@ -714,7 +711,7 @@ class OverlayService : Service() {
             textSize = 20f
             setTextColor(Color.WHITE)
             setBackground(
-                roundedBackground(Color.argb(190, 255, 45, 85), 100)
+                roundedBackground(RECORD_RED, 100, 0.85f)
             )
             setOnClickListener { toggleRecording() }
         }
@@ -787,8 +784,9 @@ class OverlayService : Service() {
             button.text = if (recording) "■" else "●"
             button.setBackground(
                 roundedBackground(
-                    if (recording) Color.argb(210, 255, 255, 255) else Color.argb(215, 255, 45, 85),
-                    100
+                    if (recording) Color.WHITE else RECORD_RED,
+                    100,
+                    if (recording) 0.85f else 0.9f
                 )
             )
             button.setTextColor(if (recording) Color.rgb(220, 20, 60) else Color.WHITE)
@@ -977,10 +975,15 @@ class OverlayService : Service() {
     /**
      * 提词面板背景：**半透明深色玻璃**（对标 app 效果）——身后的取景/人脸能透出来，
      * 配合文字阴影保证在明亮画面上依然清晰可读。取景时更透一些。
+     *
+     * 注意必须用 alpha 参数（0f~1f）传透明度，不能用 Color.argb(120,…)：
+     * roundedBackground 内部的 withAlpha 会用 alpha 参数重算 alpha，
+     * 直接传 argb 颜色会被 alpha=1.0 覆盖成完全不透明。
      */
     private fun panelBackground(): GradientDrawable = roundedBackground(
-        if (previewMode) Color.argb(120, 6, 10, 18) else Color.argb(165, 10, 15, 24),
-        18
+        PANEL_COLOR,
+        18,
+        if (previewMode) 0.38f else 0.66f
     )
 
     /** 给文字加黑色阴影：半透明面板上文字依然清晰（对标 app 的字都有阴影）。 */
@@ -1026,6 +1029,10 @@ class OverlayService : Service() {
         const val USER_SCROLL_PAUSE_MS = 3000L
         // 取景放大量上限：超过说明相机没按请求的 buffer 尺寸输出，宁可留黑边也别糊
         const val MAX_CROP_UPSCALE = 1.35f
+        // 半透明玻璃面板配色（透明度由 roundedBackground 的 alpha 参数控制）
+        val PANEL_COLOR = Color.rgb(8, 12, 20)
+        val CONTROL_COLOR = Color.rgb(16, 22, 32)
+        val RECORD_RED = Color.rgb(255, 45, 85)
 
         fun start(
             context: Context,

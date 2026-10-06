@@ -125,14 +125,18 @@ class ScriptAligner(script: String) {
     ): ScriptMatch? {
         val needed = (utt.length * threshold).toInt() + 1
         var best: ScriptMatch? = null
+        var bestAdjusted = Float.NEGATIVE_INFINITY
         for (start in lo..hi) {
             val hit = scoreAt(start, utt, needed) ?: continue
             if (hit.score < threshold) continue
             val distance = Math.abs(start - center)
-            val adjusted = hit.score - distance * DISTANCE_PENALTY
-            val cur = best
-            if (cur == null || adjusted > cur.score) {
+            // 起点精确对上的匹配优先：否则「从上一句末字蹭上」的匹配会因距离惩罚更小而胜出，
+            // 导致光标停在该句的前一个字上（实测表现为进度条差一格、句首高亮不到）。
+            val adjusted = hit.score - distance * DISTANCE_PENALTY +
+                (if (hit.exactStart) EXACT_START_BONUS else 0f)
+            if (best == null || adjusted > bestAdjusted) {
                 best = ScriptMatch(startClean = start, endClean = hit.endExclusive, score = hit.score)
+                bestAdjusted = adjusted
             }
         }
         return best
@@ -187,7 +191,7 @@ class ScriptAligner(script: String) {
         return count
     }
 
-    private data class AlignHit(val endExclusive: Int, val score: Float)
+    private data class AlignHit(val endExclusive: Int, val score: Float, val exactStart: Boolean)
 
     /**
      * 从台本 [start] 开始对齐 [utt]，返回能对上的比例与匹配终点。
@@ -242,7 +246,11 @@ class ScriptAligner(script: String) {
             i++
         }
         if (matched == 0) return null
-        return AlignHit(endExclusive = lastMatch + 1, score = matched.toFloat() / utt.length)
+        return AlignHit(
+            endExclusive = lastMatch + 1,
+            score = matched.toFloat() / utt.length,
+            exactStart = cleanScript.getOrNull(start) == utt.firstOrNull()
+        )
     }
 
     companion object {
@@ -290,5 +298,8 @@ class ScriptAligner(script: String) {
 
         /** 距离惩罚：得分相近时优先离光标近的匹配。 */
         private const val DISTANCE_PENALTY = 0.0005f
+
+        /** 起点精确对齐的加分（大于 400 字窗口内的最大距离惩罚，确保优先吸附到真实句首）。 */
+        private const val EXACT_START_BONUS = 0.05f
     }
 }

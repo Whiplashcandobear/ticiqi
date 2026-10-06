@@ -42,8 +42,10 @@ class VoiceFollowEngineTest {
 
         val state = engine.onRecognition("今天天气不错我们去吃火锅吧", 400L)
 
+        // 光标不动，且这次识别不算匹配；hasStableMatch 表示"本会话曾成功匹配过"，
+        // 前面已成功匹配过一次，所以仍为 true
         assertEquals(0, state.currentUnitIndex)
-        assertFalse(state.hasStableMatch)
+        assertFalse(state.lastMatched)
     }
 
     @Test

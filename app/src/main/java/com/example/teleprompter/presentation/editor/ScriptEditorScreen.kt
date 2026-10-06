@@ -39,7 +39,12 @@ import com.example.teleprompter.util.formatDurationSeconds
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
-fun ScriptEditorScreen(store: LocalStore, scriptId: Long, onBack: () -> Unit, onSaved: (Long) -> Unit) {
+fun ScriptEditorScreen(
+    store: LocalStore,
+    scriptId: Long,
+    onBack: () -> Unit,
+    onStartDirect: (Long) -> Unit
+) {
     val existing = remember(scriptId) { store.loadScripts().firstOrNull { it.id == scriptId } }
     var title by rememberSaveable(scriptId) { mutableStateOf(existing?.title ?: "未命名演讲") }
     var text by rememberSaveable(scriptId) { mutableStateOf(existing?.rawText ?: "") }
@@ -92,12 +97,26 @@ fun ScriptEditorScreen(store: LocalStore, scriptId: Long, onBack: () -> Unit, on
                 Text(text, lineHeight = 24.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Spacer(Modifier.height(8.dp))
+            // 「保存」：只保存并回主页（可能只是想攒稿，之后再拍）
+            OutlinedButton(
+                onClick = {
+                    store.saveScript(
+                        ScriptDocument(id = scriptId, title = title, rawText = text, wordCount = unitCount)
+                    )
+                    onBack()
+                },
+                enabled = text.isNotBlank(),
+                modifier = Modifier.fillMaxWidth().height(52.dp)
+            ) { Text("保存", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
+            Spacer(Modifier.height(8.dp))
+            // 「保存并开始」：直接拉起悬浮提词 + 相机取景（跳过播放设置，那步默认都是语音跟随）
+            // 是否真正开录仍由用户在取景页点底部红点决定
             Button(
                 onClick = {
                     val saved = store.saveScript(
                         ScriptDocument(id = scriptId, title = title, rawText = text, wordCount = unitCount)
                     )
-                    onSaved(saved.id)
+                    onStartDirect(saved.id)
                 },
                 enabled = text.isNotBlank(),
                 modifier = Modifier.fillMaxWidth().height(56.dp)

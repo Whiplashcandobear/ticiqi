@@ -101,6 +101,7 @@ fun HomeScreen(
                             script = script,
                             onEdit = { onEdit(script.id) },
                             onPlay = { OverlayLauncherActivity.start(context, script.id) },
+                            onRecord = { OverlayLauncherActivity.start(context, script.id, openCamera = true) },
                             onDelete = { deleteId = script.id }
                         )
                     }
@@ -127,7 +128,13 @@ fun HomeScreen(
 }
 
 @Composable
-private fun ScriptCard(script: ScriptDocument, onEdit: () -> Unit, onPlay: () -> Unit, onDelete: () -> Unit) {
+private fun ScriptCard(
+    script: ScriptDocument,
+    onEdit: () -> Unit,
+    onPlay: () -> Unit,
+    onRecord: () -> Unit,
+    onDelete: () -> Unit
+) {
     val unitCount = countReadingUnits(script.rawText)
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -135,6 +142,7 @@ private fun ScriptCard(script: ScriptDocument, onEdit: () -> Unit, onPlay: () ->
             Text("$unitCount 字 · ${formatDurationSeconds(ceilDurationSeconds(unitCount, 200))}", color = MaterialTheme.colorScheme.secondary)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onPlay, modifier = Modifier.weight(1f)) { Text("提词") }
+                OutlinedButton(onClick = onRecord, modifier = Modifier.weight(1f)) { Text("录制") }
                 OutlinedButton(onClick = onEdit, modifier = Modifier.weight(1f)) { Text("编辑") }
                 TextButton(onClick = onDelete) { Text("删除") }
             }

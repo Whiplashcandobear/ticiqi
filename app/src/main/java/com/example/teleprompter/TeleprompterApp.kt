@@ -34,7 +34,11 @@ fun TeleprompterApp(store: LocalStore) {
                     store = store,
                     scriptId = id,
                     onBack = { navController.popBackStack() },
-                    onSaved = { navController.navigate("settings/$it") }
+                    // 「保存并开始」：直接拉起悬浮提词 + 相机取景，不再经过播放设置页
+                    onStartDirect = { scriptId ->
+                        OverlayLauncherActivity.start(context, scriptId, openCamera = true)
+                        navController.popBackStack()
+                    }
                 )
             }
             composable("settings/{scriptId}") { entry ->

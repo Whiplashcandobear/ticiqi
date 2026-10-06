@@ -93,7 +93,6 @@ class OverlayService : Service() {
     private var previewRecordButton: TextView? = null
     private var previewMode = false
     private var previewAttached = false
-    private var pendingRecordStart = false
     private var collapseButton: TextView? = null
     // 连续滚动跟随：用户手动滚动后暂停自动跟随一段时间
     private var lastUserScrollAt = 0L
@@ -141,6 +140,25 @@ class OverlayService : Service() {
         if (overlayRoot == null) showOverlay()
         else renderTranscript()
         startPlaybackLoop()
+
+        // 「拍摄提词」入口：拉起悬浮窗的同时直接进入全屏取景（但仍不自动开录，
+        // 需用户在底部点开始录像）。delay 让悬浮窗先渲染出来再叠取景层，视觉更顺。
+        if (intent?.getBooleanExtra(EXTRA_OPEN_CAMERA, false) == true && !previewMode) {
+            scope.launch {
+                // 让悬浮窗先渲染出来再叠取景层，视觉更顺
+                delay(350)
+                if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                    ensureRecorder()
+                    startForegroundCompat()
+                    enterPreviewMode()
+                    voiceEngineStatus = "取景已就绪，点下方红点开始录像"
+                    updateStatus()
+                } else {
+                    voiceEngineStatus = "未授权相机，点悬浮窗「录像」可重试"
+                    updateStatus()
+                }
+            }
+        }
         return START_NOT_STICKY
     }
 
@@ -497,38 +515,46 @@ class OverlayService : Service() {
         renderTranscript()
     }
 
+    /**
+     * 悬浮窗里的「录像」按钮：**只负责打开/关闭取景**，不自动开始录制
+     * （与对标 app 一致：先看构图，确认好再点底部中间的红色按钮开录）。
+     * 已在取景时再次点击则开始/停止录制。
+     */
     private fun toggleRecording() {
         val rec = recorder
         if (rec?.isRecording == true) {
             stopRecording()
             return
         }
+        if (previewMode) {
+            // 已在取景：直接开录（用户手动点中间按钮）
+            ensureRecorder().start {
+                scope.launch { updateRecordButton(); updateStatus() }
+            }
+            return
+        }
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-            voiceEngineStatus = "未授权相机，请到系统设置开启后重试录像"
+            voiceEngineStatus = "未授权相机，请到系统设置开启后重试"
             updateStatus()
             return
         }
-        val target = rec ?: OverlayRecorder(applicationContext) { msg ->
-            scope.launch {
-                voiceEngineStatus = "录像：$msg"
-                updateRecordButton()
-                updateStatus()
-            }
-        }.also { recorder = it }
-        // 先刷新前台服务类型（录像需要 camera 类型），再开相机
+        // 只开取景，**不自动开录**；等用户点底部中间的按钮
+        ensureRecorder()
         startForegroundCompat()
-        if (!previewMode) {
-            // 进入全屏取景预览，Surface 就绪后自动开始录像
-            pendingRecordStart = true
-            enterPreviewMode()
-            attachPreviewIfReady()
-        } else {
-            // 已在全屏预览（上次录完仍在取景）：直接开录
-            target.start {
-                scope.launch { updateRecordButton(); updateStatus() }
-            }
-        }
+        enterPreviewMode()
+        voiceEngineStatus = "取景已就绪，点下方红点开始录像"
+        updateRecordButton()
+        updateStatus()
     }
+
+    /** 取录音频引擎（首次调用时创建）。 */
+    private fun ensureRecorder(): OverlayRecorder = recorder ?: OverlayRecorder(applicationContext) { msg ->
+        scope.launch {
+            voiceEngineStatus = "录像：$msg"
+            updateRecordButton()
+            updateStatus()
+        }
+    }.also { recorder = it }
 
     private fun stopRecording() {
         recorder?.stop { uri ->
@@ -552,12 +578,6 @@ class OverlayService : Service() {
         if (previewAttached) return
         previewAttached = true
         rec.attachPreview(view.surfaceProvider)
-        if (pendingRecordStart) {
-            pendingRecordStart = false
-            rec.start {
-                scope.launch { updateRecordButton(); updateStatus() }
-            }
-        }
     }
 
     /** 进入取景预览：创建独立全屏预览窗口铺底，提词窗口浮在上层保持原样。 */
@@ -578,7 +598,6 @@ class OverlayService : Service() {
         if (recorder?.isRecording == true) stopRecording()
         previewMode = false
         previewAttached = false
-        pendingRecordStart = false
         collapseButton?.visibility = View.GONE
         overlayRoot?.background = roundedBackground(surfaceColor(), 18)
         recorder?.detachPreview()
@@ -953,17 +972,26 @@ class OverlayService : Service() {
         const val EXTRA_SCRIPT_ID = "script_id"
         const val EXTRA_INDEX = "index"
         const val EXTRA_PROGRESS = "progress"
+        /** 启动时直接进入全屏取景（「拍摄提词」入口），但不自动开始录制。 */
+        const val EXTRA_OPEN_CAMERA = "open_camera"
         const val NOTIFICATION_ID = 42
         const val MIN_OVERLAY_SIZE_DP = 200
         const val USER_SCROLL_PAUSE_MS = 3000L
         // 取景放大量上限：超过说明相机没按请求的 buffer 尺寸输出，宁可留黑边也别糊
         const val MAX_CROP_UPSCALE = 1.35f
 
-        fun start(context: Context, scriptId: Long, index: Int, progress: Float) {
+        fun start(
+            context: Context,
+            scriptId: Long,
+            index: Int,
+            progress: Float,
+            openCamera: Boolean = false
+        ) {
             val intent = Intent(context.applicationContext, OverlayService::class.java).apply {
                 putExtra(EXTRA_SCRIPT_ID, scriptId)
                 putExtra(EXTRA_INDEX, index)
                 putExtra(EXTRA_PROGRESS, progress)
+                if (openCamera) putExtra(EXTRA_OPEN_CAMERA, true)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.applicationContext.startForegroundService(intent)

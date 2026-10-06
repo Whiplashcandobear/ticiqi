@@ -23,12 +23,14 @@ import com.example.teleprompter.overlay.OverlayService
 class OverlayLauncherActivity : Activity() {
 
     private var scriptId = -1L
+    private var openCamera = false
     private var requestedOverlayPermission = false
     private var requestedMic = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         scriptId = intent.getLongExtra(EXTRA_SCRIPT_ID, -1L)
+        openCamera = intent.getBooleanExtra(EXTRA_OPEN_CAMERA, false)
     }
 
     override fun onResume() {
@@ -86,7 +88,13 @@ class OverlayLauncherActivity : Activity() {
             finish()
             return
         }
-        OverlayService.start(this, document.id, document.lastPlaybackUnit, document.lastPlaybackProgress)
+        OverlayService.start(
+            this,
+            document.id,
+            document.lastPlaybackUnit,
+            document.lastPlaybackProgress,
+            openCamera
+        )
         finish()
     }
 
@@ -94,9 +102,13 @@ class OverlayLauncherActivity : Activity() {
         private const val MIC_REQUEST_CODE = 1001
         const val EXTRA_SCRIPT_ID = "script_id"
 
-        fun start(context: Context, scriptId: Long) {
+        /** 「拍摄提词」：拉起悬浮窗的同时打开全屏取景（不自动开录）。 */
+        const val EXTRA_OPEN_CAMERA = "open_camera"
+
+        fun start(context: Context, scriptId: Long, openCamera: Boolean = false) {
             val intent = Intent(context, OverlayLauncherActivity::class.java)
                 .putExtra(EXTRA_SCRIPT_ID, scriptId)
+                .putExtra(EXTRA_OPEN_CAMERA, openCamera)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(intent)
         }

@@ -58,7 +58,7 @@ fun HomeScreen(
             Text("演讲提词器", fontSize = 30.sp, fontWeight = FontWeight.Bold)
             Text("让每一次表达都更从容", color = MaterialTheme.colorScheme.secondary)
 
-            // 默认悬浮提词：点一下直接弹悬浮窗（首次会引导授权）
+            // 提词类型：悬浮提词（只弹悬浮窗） / 拍摄提词（同时打开相机取景）
             Button(
                 onClick = {
                     val target = recent.firstOrNull()
@@ -67,6 +67,18 @@ fun HomeScreen(
                 modifier = Modifier.fillMaxWidth().height(64.dp)
             ) {
                 Text(if (recent.isEmpty()) "开始提词" else "开始悬浮提词", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.height(10.dp))
+            OutlinedButton(
+                onClick = {
+                    val target = recent.firstOrNull()
+                    if (target == null) onNew()
+                    else OverlayLauncherActivity.start(context, target.id, openCamera = true)
+                },
+                enabled = recent.isNotEmpty(),
+                modifier = Modifier.fillMaxWidth().height(52.dp)
+            ) {
+                Text("拍摄提词（同时打开相机）", fontSize = 15.sp, fontWeight = FontWeight.Bold)
             }
 
             Row(modifier = Modifier.fillMaxWidth()) {

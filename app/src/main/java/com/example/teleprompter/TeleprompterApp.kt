@@ -44,6 +44,7 @@ fun TeleprompterApp(store: LocalStore) {
                     scriptId = id,
                     onBack = { navController.popBackStack() },
                     onStart = { OverlayLauncherActivity.start(context, it) },
+                    onStartShooting = { OverlayLauncherActivity.start(context, it, openCamera = true) },
                     onFullscreen = { navController.navigate("playback/$it") }
                 )
             }

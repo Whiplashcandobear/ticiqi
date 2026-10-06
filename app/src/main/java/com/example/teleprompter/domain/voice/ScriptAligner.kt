@@ -149,8 +149,7 @@ class ScriptAligner(script: String) {
         for (len in maxLen downTo FRAGMENT_MIN) {
             val frag = utt.takeLast(len)
             if (frag.isBlank()) continue
-            val idx = cleanScript.indexOf(frag, lo, hi + len)
-            if (idx < 0) continue
+            val idx = indexOfInWindow(frag, lo, hi) ?: continue
             // 高频片段不可信
             if (countOccurrences(frag) > FRAGMENT_MAX_OCCURRENCES) continue
             // 得分按片段长度折算：越长越可信
@@ -160,6 +159,17 @@ class ScriptAligner(script: String) {
                 score = (len.toFloat() / maxLen) * FRAGMENT_SCORE_CEILING,
                 tier = Tier.FRAGMENT
             )
+        }
+        return null
+    }
+
+    /** 在 [lo]..[hi]（含）范围内查找 [fragment] 的首个出现位置。 */
+    private fun indexOfInWindow(fragment: String, lo: Int, hi: Int): Int? {
+        var from = lo.coerceAtLeast(0)
+        while (from <= hi) {
+            val idx = cleanScript.indexOf(fragment, from)
+            if (idx < 0 || idx > hi) return null
+            return idx
         }
         return null
     }

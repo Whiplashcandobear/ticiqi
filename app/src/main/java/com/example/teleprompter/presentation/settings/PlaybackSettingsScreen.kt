@@ -206,8 +206,9 @@ fun PlaybackSettingsScreen(
             SettingTitle("字号")
             ChoiceRow(FontScale.entries, settings.fontScale, { it.label() }) { update(settings.copy(fontScale = it)) }
 
-            SettingTitle("字体颜色")
+            SettingTitle("跟读高亮色")
             ChoiceRow(AccentColor.entries, settings.accentColor, { it.label() }) { update(settings.copy(accentColor = it)) }
+            Text("提词文字默认白色，念到的那部分会渲染成这个高亮色。", color = MaterialTheme.colorScheme.secondary, fontSize = 12.sp)
 
             SettingTitle("背景")
             ChoiceRow(ThemeMode.entries, settings.themeMode, { it.label() }) { update(settings.copy(themeMode = it)) }

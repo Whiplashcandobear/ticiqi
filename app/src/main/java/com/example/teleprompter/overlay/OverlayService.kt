@@ -452,34 +452,16 @@ class OverlayService : Service() {
     private fun updateLine(index: Int, view: TextView, unit: SpeechUnit) {
         val current = index == currentIndex
         val past = index < currentIndex
-        // 全文统一字号常显，当前句用加粗+强调色+底色高亮，已读句淡出
+        // 全文统一字号常显；默认白字，念到的地方黄色渲染（对标 app 风格），不做底框
         view.textSize = overlayFontSize()
         view.typeface = if (current) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-        view.setTextColor(
-            when {
-                current -> accentColor()
-                past -> secondaryColor()
-                else -> textColor()
-            }
-        )
+        view.setTextColor(if (current) liveColor() else textColor())
         view.alpha = when {
             current -> 1f
-            past -> 0.7f
-            else -> 0.92f
+            past -> 0.6f
+            else -> 0.95f
         }
-        // 取景时给当前句加半透明黑底 + 细白描边，文字在明亮画面上依然清晰（对标 app 效果）；
-        // 非取景时沿用原来的强调色浅底
-        view.background = if (current) {
-            if (previewMode) {
-                roundedBackground(Color.BLACK, 10, 0.38f).apply {
-                    setStroke(dp(1), Color.argb(150, 255, 255, 255))
-                }
-            } else {
-                roundedBackground(accentColor(), 10, 0.15f)
-            }
-        } else {
-            null
-        }
+        view.background = null
         applyTextShadow(view)
         view.text = if (current) currentSpannable() else unit.rawText
     }
@@ -489,7 +471,7 @@ class OverlayService : Service() {
         val visible = (text.length * progress).toInt().coerceIn(0, text.length)
         return SpannableString(text).apply {
             setSpan(ForegroundColorSpan(liveColor()), 0, visible, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            setSpan(ForegroundColorSpan(accentColor()), visible, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            setSpan(ForegroundColorSpan(textColor()), visible, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         }
     }
 
@@ -999,7 +981,12 @@ class OverlayService : Service() {
         AccentColor.AMBER -> if (settings.themeMode == ThemeMode.DARK) Color.rgb(255, 215, 106) else Color.rgb(139, 90, 0)
         AccentColor.MINT -> if (settings.themeMode == ThemeMode.DARK) Color.rgb(113, 225, 188) else Color.rgb(12, 107, 84)
     }
-    private fun liveColor() = if (settings.themeMode == ThemeMode.DARK) Color.rgb(255, 180, 84) else Color.rgb(179, 92, 0)
+    /** 跟读高亮色：当前句「念到哪渲染到哪」的那部分用这个颜色（跟随设置里的字体颜色）。 */
+    private fun liveColor() = when (settings.accentColor) {
+        AccentColor.AMBER -> if (settings.themeMode == ThemeMode.DARK) Color.rgb(255, 196, 90) else Color.rgb(179, 92, 0)
+        AccentColor.BLUE -> if (settings.themeMode == ThemeMode.DARK) Color.rgb(120, 205, 255) else Color.rgb(20, 89, 183)
+        AccentColor.MINT -> if (settings.themeMode == ThemeMode.DARK) Color.rgb(130, 232, 196) else Color.rgb(12, 107, 84)
+    }
     private fun overlayFontSize() = when (settings.fontScale) {
         FontScale.SMALL -> 16f
         FontScale.MEDIUM -> 18f

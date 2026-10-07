@@ -673,12 +673,14 @@ class OverlayService : Service() {
             setOnClickListener { /* 预览区吞掉点击，不穿透 */ }
         }
         val view = PreviewView(this).apply {
-            // COMPATIBLE 内部用 TextureView 实现，scaleX 镜像才有效
+            // COMPATIBLE 内部用 TextureView 实现
             implementationMode = PreviewView.ImplementationMode.COMPATIBLE
             // FILL_CENTER = 等比放大铺满并居中裁切（CENTER_CROP），官方标准做法
             scaleType = PreviewView.ScaleType.FILL_CENTER
-            // 前置摄像头自拍视角水平镜像（CameraX 只镜像拍照，不镜像取景预览）
-            scaleX = -1f
+            // 不做水平镜像：与录出的成片保持一致，做到所见即所得。
+            // CameraX 的 VideoCapture 默认就不镜像录像（官方明确说明），
+            // 若这里再镜像预览，就会出现「取景里往左歪、成片里往右歪」的割裂感。
+            scaleX = 1f
         }
         container.addView(view, FrameLayout.LayoutParams(-1, -1))
         container.addView(buildPreviewControls(), previewControlParams())
@@ -769,8 +771,8 @@ class OverlayService : Service() {
         rec.flipCamera { ok ->
             scope.launch {
                 if (ok) {
-                    // 前置自拍视角需要水平镜像，后置不镜像
-                    previewView?.scaleX = if (rec.isFrontFacing) -1f else 1f
+                    // 前后镜头都不镜像：预览与成片方向始终一致（成片本身就不镜像）
+                    previewView?.scaleX = 1f
                     voiceEngineStatus = if (rec.isFrontFacing) "已切换到前置镜头" else "已切换到后置镜头"
                 } else {
                     voiceEngineStatus = "镜头切换失败"

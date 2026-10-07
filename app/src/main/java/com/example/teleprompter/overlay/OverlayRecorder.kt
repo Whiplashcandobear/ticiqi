@@ -35,8 +35,14 @@ import java.util.concurrent.Executor
  * 为什么用 CameraX 而不是裸 Camera2：取景画面的比例、旋转、前置镜像这些在
  * Camera2 里需要自己用 TextureView.setTransform 手算矩阵（坐标系/镜像平移符号
  * 极易出错，表现为画面拉伸、放大数倍、黑屏）。CameraX 的 PreviewView 内置
- * PreviewTransform 会自动按 targetRotation / 窗口尺寸 / 传感器朝向算出正确变换，
- * 并在前置摄像头时自动镜像 —— 这些是绝大多数相机 App 的标准做法。
+ * PreviewTransform 会自动按 targetRotation / 窗口尺寸 / 传感器朝向算出正确变换
+ * —— 这些是绝大多数相机 App 的标准做法。
+ *
+ * 关于镜像（踩过的坑）：CameraX **只镜像拍照**（ImageCapture），
+ * 取景预览和录像默认都不镜像（官方文档明确："the camera preview is mirrored on
+ * the front camera by default, videos recorded by VideoCapture are not mirrored
+ * by default"）。所以想要「所见即所得」时，**不要**给 PreviewView 加 scaleX = -1f，
+ * 否则预览翻转而成片不翻转，取景和成片左右相反。
  *
  * 边录边跟随仍然成立：CameraX 的 VideoCapture 与我们自己的 sherpa AudioRecord
  * 属于同一 UID，Android 10+ 允许并发采集麦克风。

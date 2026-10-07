@@ -140,7 +140,12 @@ class OverlayService : Service() {
         startForegroundCompat()
 
         if (overlayRoot == null) showOverlay()
-        else renderTranscript()
+        else {
+            // 复用已有窗口：设置可能变了，重新下发一次常亮策略
+            overlayRoot?.keepScreenOn = shouldKeepScreenOn()
+            refreshKeepScreenOn()
+            renderTranscript()
+        }
         startPlaybackLoop()
 
         // 「拍摄提词」入口：拉起悬浮窗的同时直接进入全屏取景（但仍不自动开录，
@@ -186,6 +191,8 @@ class OverlayService : Service() {
         val frame = FrameLayout(this).apply {
             background = panelBackground()
             elevation = dp(8).toFloat()
+            // 与窗口 flag 双保险：部分国产 ROM 只认 View 层的 keepScreenOn 标记
+            keepScreenOn = shouldKeepScreenOn()
         }
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -302,7 +309,7 @@ class OverlayService : Service() {
             dp(settings.overlayWidthDp.coerceIn(MIN_OVERLAY_SIZE_DP, 720)),
             dp(settings.overlayHeightDp.coerceIn(MIN_OVERLAY_SIZE_DP, 720)),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            baseFlags(),
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -312,6 +319,35 @@ class OverlayService : Service() {
         overlayParams = params
         windowManager.addView(frame, params)
         renderTranscript()
+    }
+
+    /**
+     * 悬浮窗的基础 flag。
+     *
+     * FLAG_KEEP_SCREEN_ON 是这里的关键：提词/取景/录像时用户不方便（或没法）去点亮屏幕，
+     * 系统「无操作自动息屏」会把悬浮窗画面一起变黑 —— 表现为录着录着屏幕就暗了。
+     * 只要窗口带这个 flag 且可见，系统就不会进入息屏流程。
+     */
+    private fun baseFlags(): Int {
+        var flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+        if (shouldKeepScreenOn()) flags = flags or WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        return flags
+    }
+
+    /**
+     * 是否需要常亮：取景/录像期间强制常亮（否则录到一半黑屏），
+     * 其余情况跟随设置项，默认也常亮。
+     */
+    private fun shouldKeepScreenOn(): Boolean = previewMode || recorder?.isRecording == true || settings.keepScreenOn
+
+    /** 取景/录像状态变化后重新下发窗口 flag，让常亮策略立即生效。 */
+    private fun refreshKeepScreenOn() {
+        val params = overlayParams ?: return
+        val desired = baseFlags()
+        if (params.flags == desired) return
+        params.flags = desired
+        overlayRoot?.let { runCatching { windowManager.updateViewLayout(it, params) } }
     }
 
     private fun createResizeListener(): View.OnTouchListener = object : View.OnTouchListener {
@@ -528,7 +564,11 @@ class OverlayService : Service() {
         if (previewMode) {
             // 已在取景：直接开录（用户手动点中间按钮）
             ensureRecorder().start {
-                scope.launch { updateRecordButton(); updateStatus() }
+                scope.launch {
+                    refreshKeepScreenOn()
+                    updateRecordButton()
+                    updateStatus()
+                }
             }
             return
         }
@@ -561,6 +601,7 @@ class OverlayService : Service() {
                 if (uri != null) {
                     Toast.makeText(this@OverlayService, "录像已保存到 相册 › Movies › ticiqi", Toast.LENGTH_LONG).show()
                 }
+                refreshKeepScreenOn()
                 updateRecordButton()
                 updateStatus()
             }
@@ -592,6 +633,9 @@ class OverlayService : Service() {
         refreshLineStyles()
         updateRecordButton()
         updateStatus()
+        // 取景窗口的 flag 只在 addView 时生效，必须在它加入前就已带上 KEEP_SCREEN_ON；
+        // 这里再刷一次提词窗口，保证即使复用旧 params 也同步为常亮。
+        refreshKeepScreenOn()
     }
 
     /** 退出取景预览：停录、释放相机、移除预览窗口。 */
@@ -607,6 +651,7 @@ class OverlayService : Service() {
         refreshLineStyles()
         updateRecordButton()
         updateStatus()
+        refreshKeepScreenOn()
     }
 
     /** 控制栏/状态栏底色的透明度依赖是否在取景，取景切换时统一刷新一次。 */
@@ -624,6 +669,7 @@ class OverlayService : Service() {
             // 不透明黑底：即使取景画面尚未出帧，背后的 App 页面也不会透出来
             setBackgroundColor(Color.BLACK)
             isClickable = true
+            keepScreenOn = true
             setOnClickListener { /* 预览区吞掉点击，不穿透 */ }
         }
         val view = PreviewView(this).apply {
@@ -640,8 +686,8 @@ class OverlayService : Service() {
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            // 取景窗口必须常亮：这是用户真正盯着看的画面，息屏等于录像拍黑屏
+            baseFlags() or WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
             PixelFormat.OPAQUE
         )
         windowManager.addView(container, params)

@@ -219,6 +219,14 @@ fun PlaybackSettingsScreen(
             SettingTitle("初始方向")
             ChoiceRow(listOf(false, true), settings.landscape, { if (it) "横屏" else "竖屏" }) { update(settings.copy(landscape = it)) }
 
+            SettingTitle("屏幕常亮")
+            ChoiceRow(listOf(false, true), settings.keepScreenOn, { if (it) "常亮" else "跟随系统" }) { update(settings.copy(keepScreenOn = it)) }
+            Text(
+                "悬浮提词时保持屏幕常亮，避免自动息屏。打开相机取景或正在录像时始终常亮，不受此设置影响。",
+                color = MaterialTheme.colorScheme.secondary,
+                fontSize = 13.sp
+            )
+
             Text("播放中可用 −10 / +10 字/分 即时微调，当前句会继续播放且不会跳回；你仍可上下滚动浏览全文。", color = MaterialTheme.colorScheme.secondary, fontSize = 13.sp)
             Spacer(Modifier.height(4.dp))
             Text("提词类型", fontWeight = FontWeight.Bold, fontSize = 15.sp)

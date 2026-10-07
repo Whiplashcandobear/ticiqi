@@ -86,6 +86,7 @@ class LocalStore(context: Context) {
                 .getOrDefault(CloudAsrConfig()),
             overlayWidthDp = item.optInt("overlayWidthDp", 320),
             overlayHeightDp = item.optInt("overlayHeightDp", 320),
+            keepScreenOn = item.optBoolean("keepScreenOn", true),
             defaultsVersion = item.optInt("defaultsVersion", 0)
         )
     }.getOrDefault(DisplaySettings())
@@ -115,6 +116,7 @@ class LocalStore(context: Context) {
             .put("cloudConfig", cloudJson)
             .put("overlayWidthDp", settings.overlayWidthDp)
             .put("overlayHeightDp", settings.overlayHeightDp)
+            .put("keepScreenOn", settings.keepScreenOn)
             .put("defaultsVersion", settings.defaultsVersion)
         preferences.edit().putString(KEY_SETTINGS, item.toString()).apply()
     }

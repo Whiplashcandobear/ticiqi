@@ -64,6 +64,9 @@ data class DisplaySettings(
     // 悬浮窗尺寸（dp），可在悬浮窗内拖角调节。
     val overlayWidthDp: Int = 320,
     val overlayHeightDp: Int = 320,
+    // 悬浮提词/取景/录像期间保持屏幕常亮（避免系统无操作自动息屏）。
+    // 取景与录像状态下强制常亮，此开关只影响「纯提词」时是否常亮。
+    val keepScreenOn: Boolean = true,
     // 已应用过的「默认播放方式」迁移版本，见 LocalStore.DEFAULTS_VERSION
     val defaultsVersion: Int = 0
 )

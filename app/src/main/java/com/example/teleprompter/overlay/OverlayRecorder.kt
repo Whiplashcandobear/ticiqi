@@ -9,7 +9,6 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
 import androidx.camera.core.CameraSelector
-import androidx.camera.core.MirrorMode
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.video.FallbackStrategy
@@ -40,12 +39,17 @@ import java.util.concurrent.Executor
  * —— 这些是绝大多数相机 App 的标准做法。
  *
  * 关于镜像（踩过的坑，实测结论以真机为准）：
- * - 取景预览的镜像：由 PreviewView 的显示变换决定，默认前置会照镜子；
- *   我们**没有**给 PreviewView 加 scaleX = -1f，所以预览是真实方向（所见即所得）。
- * - 录像成片的镜像：由 VideoCapture 的 mirrorMode 决定，**默认行为随版本漂移**，
- *   在 1.4.2 上实测前置录像成片是镜像的（与预览相反）。
- * - 因此要「取景与成片方向完全一致」，必须**显式**把 VideoCapture 的 mirrorMode
- *   设为 MIRROR_MODE_OFF，不能依赖默认。只改预览或只改成片都会导致两边不一致。
+ * - 取景预览：由 PreviewView 的显示变换决定。我们**没有**给 PreviewView 加
+ *   scaleX = -1f，所以预览是真实方向（所见即所得）。
+ * - 录像成片：CameraX 1.4.2 前置默认把成片录成镜像。但实测小米/红米(HyperOS)
+ *   系统相册会**对前置视频自动再做一次镜像**，于是：
+ *     成片=镜像 + 相册自动镜像 → 相册里看到真实方向（正常，妈妈最常用的回放方式）；
+ *     成片=真实 + 相册自动镜像 → 相册里反而成了镜像（异常）。
+ *   因此这里**故意保留 CameraX 默认的镜像成片**（不调用 setMirrorMode），
+ *   让妈妈最常用的系统相册回放显示正常、且与实时预览方向一致。
+ *   代价：用 VLC/微信等不自动镜像的播放器打开时，成片会显示为镜像——这是小米
+ *   相册自动镜像机制的固有冲突；若想「成片本身也是真实方向」，改回
+ *   VideoCapture.Builder.setMirrorMode(MIRROR_MODE_OFF) 即可，但小米相册会再翻一次。
  *
  * 边录边跟随仍然成立：CameraX 的 VideoCapture 与我们自己的 sherpa AudioRecord
  * 属于同一 UID，Android 10+ 允许并发采集麦克风。
@@ -230,11 +234,11 @@ class OverlayRecorder(
         preview.setSurfaceProvider(surfaceProvider)
         val recorderBuilder = Recorder.Builder()
         recorderBuilder.setQualitySelector(qualitySelector)
-        // 前置录像默认会被镜像（1.4.2 实测成片是镜像的），这里显式关闭，
-        // 让录出的成片与取景预览（真实方向）完全一致，做到所见即所得。
-        val capture = VideoCapture.Builder<Recorder>(recorderBuilder.build())
-            .setMirrorMode(MirrorMode.MIRROR_MODE_OFF)
-            .build()
+        // 故意保留 CameraX 默认的「前置成片镜像」行为（不调用 setMirrorMode）。
+        // 原因：小米/红米(HyperOS)系统相册会对前置视频自动再做一次镜像，
+        // 成片镜像 + 相册自动镜像 = 相册里看到真实方向，与实时预览一致。
+        // 若改成 MIRROR_MODE_OFF（成片真实方向），相册会再翻一次反而成镜像。
+        val capture = VideoCapture.withOutput(recorderBuilder.build())
         try {
             provider.unbindAll()
             provider.bindToLifecycle(this, selector, preview, capture)

@@ -9,6 +9,7 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.MirrorMode
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.video.FallbackStrategy
@@ -38,11 +39,13 @@ import java.util.concurrent.Executor
  * PreviewTransform 会自动按 targetRotation / 窗口尺寸 / 传感器朝向算出正确变换
  * —— 这些是绝大多数相机 App 的标准做法。
  *
- * 关于镜像（踩过的坑）：CameraX **只镜像拍照**（ImageCapture），
- * 取景预览和录像默认都不镜像（官方文档明确："the camera preview is mirrored on
- * the front camera by default, videos recorded by VideoCapture are not mirrored
- * by default"）。所以想要「所见即所得」时，**不要**给 PreviewView 加 scaleX = -1f，
- * 否则预览翻转而成片不翻转，取景和成片左右相反。
+ * 关于镜像（踩过的坑，实测结论以真机为准）：
+ * - 取景预览的镜像：由 PreviewView 的显示变换决定，默认前置会照镜子；
+ *   我们**没有**给 PreviewView 加 scaleX = -1f，所以预览是真实方向（所见即所得）。
+ * - 录像成片的镜像：由 VideoCapture 的 mirrorMode 决定，**默认行为随版本漂移**，
+ *   在 1.4.2 上实测前置录像成片是镜像的（与预览相反）。
+ * - 因此要「取景与成片方向完全一致」，必须**显式**把 VideoCapture 的 mirrorMode
+ *   设为 MIRROR_MODE_OFF，不能依赖默认。只改预览或只改成片都会导致两边不一致。
  *
  * 边录边跟随仍然成立：CameraX 的 VideoCapture 与我们自己的 sherpa AudioRecord
  * 属于同一 UID，Android 10+ 允许并发采集麦克风。
@@ -227,7 +230,11 @@ class OverlayRecorder(
         preview.setSurfaceProvider(surfaceProvider)
         val recorderBuilder = Recorder.Builder()
         recorderBuilder.setQualitySelector(qualitySelector)
-        val capture = VideoCapture.withOutput(recorderBuilder.build())
+        // 前置录像默认会被镜像（1.4.2 实测成片是镜像的），这里显式关闭，
+        // 让录出的成片与取景预览（真实方向）完全一致，做到所见即所得。
+        val capture = VideoCapture.Builder<Recorder>(recorderBuilder.build())
+            .setMirrorMode(MirrorMode.MIRROR_MODE_OFF)
+            .build()
         try {
             provider.unbindAll()
             provider.bindToLifecycle(this, selector, preview, capture)

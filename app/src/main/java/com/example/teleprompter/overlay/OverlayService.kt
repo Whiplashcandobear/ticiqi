@@ -679,7 +679,7 @@ class OverlayService : Service() {
             scaleType = PreviewView.ScaleType.FILL_CENTER
             // 水平镜像与录像成片保持一致（所见即所得）：前置镜头用 scaleX = -1f
             //（自拍/镜子视角），后置镜头保持 1f。录像一侧在 OverlayRecorder 里用
-            // setMirrorMode(MIRROR_MODE_ON / OFF) 做了同样的镜像处理，因此
+            // setMirrorMode(MirrorMode.MIRROR_MODE_ON / OFF) 做了同样的镜像处理，因此
             //「取景里往左偏头，成片里也往左偏头」，两者方向严格一致。
             scaleX = if (recorder?.isFrontFacing == true) -1f else 1f
         }
@@ -773,7 +773,7 @@ class OverlayService : Service() {
             scope.launch {
                 if (ok) {
                     // 切换镜头后把预览镜像状态同步到新镜头：前置镜像(-1)，后置不镜像(1)，
-                    // 与 OverlayRecorder 里 setMirrorMode(MIRROR_MODE_ON / OFF) 保持一致。
+                    // 与 OverlayRecorder 里 setMirrorMode(MirrorMode.MIRROR_MODE_ON / OFF) 保持一致。
                     previewView?.scaleX = if (rec.isFrontFacing) -1f else 1f
                     voiceEngineStatus = if (rec.isFrontFacing) "已切换到前置镜头" else "已切换到后置镜头"
                 } else {

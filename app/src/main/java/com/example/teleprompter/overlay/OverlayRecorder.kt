@@ -14,6 +14,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.video.FallbackStrategy
 import androidx.camera.video.MediaStoreOutputOptions
 import androidx.camera.video.Quality
+import androidx.camera.video.MirrorMode
 import androidx.camera.video.QualitySelector
 import androidx.camera.video.Recorder
 import androidx.camera.video.Recording
@@ -234,12 +235,12 @@ class OverlayRecorder(
         val recorderBuilder = Recorder.Builder()
         recorderBuilder.setQualitySelector(qualitySelector)
         // 显式控制录像镜像，避免依赖 CameraX 各版本不一致的默认值（之前几版反复横跳的根因）。
-        // 前置：MIRROR_MODE_ON —— 成片水平镜像，与「自拍/镜子」式取景预览完全一致（所见即所得）。
-        // 后置：MIRROR_MODE_OFF —— 后置无需镜像。
+        // 前置：MirrorMode.MIRROR_MODE_ON —— 成片水平镜像，与「自拍/镜子」式取景预览完全一致（所见即所得）。
+        // 后置：MirrorMode.MIRROR_MODE_OFF —— 后置无需镜像。
         // 说明：小米/红米(HyperOS)系统相册会对前置视频自动再做一次镜像，故用该系统相册回放本成片
         // 会再翻回真实方向；标准播放器(VLC/微信/Google 相册等)打开则显示成片本身（镜像），与取景一致。
         val mirrorMode = if (lensFacing == CameraSelector.LENS_FACING_FRONT)
-            VideoCapture.MIRROR_MODE_ON else VideoCapture.MIRROR_MODE_OFF
+            MirrorMode.MIRROR_MODE_ON else MirrorMode.MIRROR_MODE_OFF
         val capture = VideoCapture.Builder(recorderBuilder.build())
             .setMirrorMode(mirrorMode)
             .build()

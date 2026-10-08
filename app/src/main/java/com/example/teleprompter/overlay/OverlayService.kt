@@ -677,10 +677,11 @@ class OverlayService : Service() {
             implementationMode = PreviewView.ImplementationMode.COMPATIBLE
             // FILL_CENTER = 等比放大铺满并居中裁切（CENTER_CROP），官方标准做法
             scaleType = PreviewView.ScaleType.FILL_CENTER
-            // 不做水平镜像：与录出的成片保持一致，做到所见即所得。
-            // CameraX 的 VideoCapture 默认就不镜像录像（官方明确说明），
-            // 若这里再镜像预览，就会出现「取景里往左歪、成片里往右歪」的割裂感。
-            scaleX = 1f
+            // 水平镜像与录像成片保持一致（所见即所得）：前置镜头用 scaleX = -1f
+            //（自拍/镜子视角），后置镜头保持 1f。录像一侧在 OverlayRecorder 里用
+            // setMirrorMode(MIRROR_MODE_ON / OFF) 做了同样的镜像处理，因此
+            //「取景里往左偏头，成片里也往左偏头」，两者方向严格一致。
+            scaleX = if (recorder?.isFrontFacing == true) -1f else 1f
         }
         container.addView(view, FrameLayout.LayoutParams(-1, -1))
         container.addView(buildPreviewControls(), previewControlParams())
@@ -771,8 +772,9 @@ class OverlayService : Service() {
         rec.flipCamera { ok ->
             scope.launch {
                 if (ok) {
-                    // 前后镜头都不镜像：预览与成片方向始终一致（成片本身就不镜像）
-                    previewView?.scaleX = 1f
+                    // 切换镜头后把预览镜像状态同步到新镜头：前置镜像(-1)，后置不镜像(1)，
+                    // 与 OverlayRecorder 里 setMirrorMode(MIRROR_MODE_ON / OFF) 保持一致。
+                    previewView?.scaleX = if (rec.isFrontFacing) -1f else 1f
                     voiceEngineStatus = if (rec.isFrontFacing) "已切换到前置镜头" else "已切换到后置镜头"
                 } else {
                     voiceEngineStatus = "镜头切换失败"

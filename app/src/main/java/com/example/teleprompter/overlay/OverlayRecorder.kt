@@ -38,18 +38,17 @@ import java.util.concurrent.Executor
  * PreviewTransform 会自动按 targetRotation / 窗口尺寸 / 传感器朝向算出正确变换
  * —— 这些是绝大多数相机 App 的标准做法。
  *
- * 关于镜像（踩过的坑，实测结论以真机为准）：
- * - 取景预览：由 PreviewView 的显示变换决定。我们**没有**给 PreviewView 加
- *   scaleX = -1f，所以预览是真实方向（所见即所得）。
- * - 录像成片：CameraX 1.4.2 前置默认把成片录成镜像。但实测小米/红米(HyperOS)
- *   系统相册会**对前置视频自动再做一次镜像**，于是：
- *     成片=镜像 + 相册自动镜像 → 相册里看到真实方向（正常，妈妈最常用的回放方式）；
- *     成片=真实 + 相册自动镜像 → 相册里反而成了镜像（异常）。
- *   因此这里**故意保留 CameraX 默认的镜像成片**（不调用 setMirrorMode），
- *   让妈妈最常用的系统相册回放显示正常、且与实时预览方向一致。
- *   代价：用 VLC/微信等不自动镜像的播放器打开时，成片会显示为镜像——这是小米
- *   相册自动镜像机制的固有冲突；若想「成片本身也是真实方向」，改回
- *   VideoCapture.Builder.setMirrorMode(MIRROR_MODE_OFF) 即可，但小米相册会再翻一次。
+ * 关于镜像（所见即所得原则）：
+ * - 取景预览：由 PreviewView 的显示变换决定。前置镜头我们对 PreviewView 设
+ *   scaleX = -1f（水平镜像，即「自拍/镜子」视角），后置镜头保持 1f。
+ * - 录像成片：在此**显式**用 setMirrorMode 控制，前置 MIRROR_MODE_ON、后置
+ *   MIRROR_MODE_OFF，与取景预览的镜像状态严格一致 —— 取景里往左偏头，成片里也
+ *   往左偏头，做到所见即所得（修复「预览正常、成片左右翻转」的问题）。
+ * - 为什么显式设而不是依赖默认：CameraX 不同版本对前置成片是否默认镜像行为不一致，
+ *   之前几版就是在这个默认值上反复横跳，故这里写死，不给默认值留缝隙。
+ * - 已知代价：小米/红米(HyperOS)系统相册会对前置视频自动再做一次镜像，因此用该系统
+ *   相册回放本成片会再翻回真实方向；标准播放器(VLC/微信/Google 相册等)打开则直接
+ *   显示成片本身（镜像），与取景一致。这是小米相册机制的固有行为，非本 App 缺陷。
  *
  * 边录边跟随仍然成立：CameraX 的 VideoCapture 与我们自己的 sherpa AudioRecord
  * 属于同一 UID，Android 10+ 允许并发采集麦克风。
@@ -234,11 +233,16 @@ class OverlayRecorder(
         preview.setSurfaceProvider(surfaceProvider)
         val recorderBuilder = Recorder.Builder()
         recorderBuilder.setQualitySelector(qualitySelector)
-        // 故意保留 CameraX 默认的「前置成片镜像」行为（不调用 setMirrorMode）。
-        // 原因：小米/红米(HyperOS)系统相册会对前置视频自动再做一次镜像，
-        // 成片镜像 + 相册自动镜像 = 相册里看到真实方向，与实时预览一致。
-        // 若改成 MIRROR_MODE_OFF（成片真实方向），相册会再翻一次反而成镜像。
-        val capture = VideoCapture.withOutput(recorderBuilder.build())
+        // 显式控制录像镜像，避免依赖 CameraX 各版本不一致的默认值（之前几版反复横跳的根因）。
+        // 前置：MIRROR_MODE_ON —— 成片水平镜像，与「自拍/镜子」式取景预览完全一致（所见即所得）。
+        // 后置：MIRROR_MODE_OFF —— 后置无需镜像。
+        // 说明：小米/红米(HyperOS)系统相册会对前置视频自动再做一次镜像，故用该系统相册回放本成片
+        // 会再翻回真实方向；标准播放器(VLC/微信/Google 相册等)打开则显示成片本身（镜像），与取景一致。
+        val mirrorMode = if (lensFacing == CameraSelector.LENS_FACING_FRONT)
+            VideoCapture.MIRROR_MODE_ON else VideoCapture.MIRROR_MODE_OFF
+        val capture = VideoCapture.Builder(recorderBuilder.build())
+            .setMirrorMode(mirrorMode)
+            .build()
         try {
             provider.unbindAll()
             provider.bindToLifecycle(this, selector, preview, capture)
